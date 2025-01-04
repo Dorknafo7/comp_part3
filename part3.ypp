@@ -1,0 +1,381 @@
+%{
+    #include <stdio.h>
+    #include "part3_helpers.hpp"
+    
+    int main(int argc, char* argv[]);
+    void yyerror(const char* c);
+
+    extern int yylex();
+    extern char *yytext;
+    extern int yylineno;
+%}
+
+%token token_int token_float token_void token_write token_read token_va_arg token_while token_do token_return token_id token_integernum token_realnum token_str token_ellipsis
+%nonassoc token_if token_then
+%nonassoc token_else
+%right token_assign
+%left token_or
+%left token_and
+%left token_relop
+%left token_addop
+%left token_mulop
+%right token_not
+%left '('
+%left ')'
+
+%%
+
+PROGRAM: FDEFS
+         {
+
+         }
+;
+
+FDEFS : FDEFS FUNC_DEF_API BLK
+        {
+
+        }
+        |
+        FDEFS FUNC_DEC_API 
+        {
+
+        }
+        |
+        /*epsilon*/
+        {
+
+        }
+;
+
+FUNC_DEC_API : TYPE token_id '(' ')' ';'
+               {
+
+               }
+               |
+               TYPE token_id '(' FUNC_ARGLIST ')' ';' 
+               {
+
+               }
+               |
+               TYPE token_id '(' FUNC_ARGLIST ',' token_ellipsis ')' ';'
+               {
+
+               }
+;
+
+FUNC_DEF_API : TYPE token_id '(' ')' 
+               {
+
+               }
+               |
+               TYPE token_id '(' FUNC_ARGLIST ')' 
+               {
+
+               }
+               |
+               TYPE token_id '(' FUNC_ARGLIST ',' token_ellipsis ')'
+               {
+
+               }
+;
+
+FUNC_ARGLIST : FUNC_ARGLIST ',' DCL 
+               {
+
+               }
+               |
+               DCL
+               {
+
+               }
+;
+
+BLK : '{' STLIST '}'
+      {
+
+      }
+;
+
+DCL : token_id ':' TYPE 
+      {
+
+      }
+      |
+      token_id ',' DCL
+      {
+
+      }
+;
+
+TYPE : token_int
+       {
+
+       }
+       | 
+       token_float 
+       {
+
+       }
+       | 
+       token_void
+       {
+
+       }
+;
+
+STLIST : STLIST STMT 
+         {
+
+         }
+         |
+         /*epsilon*/
+         { 
+
+         }
+;
+
+STMT : DCL ';' 
+       {
+
+       }
+       |
+       ASSN 
+       {
+
+       }
+       |
+       EXP ';' 
+       {
+
+       }
+       |
+       CNTRL 
+       {
+
+       }
+       | 
+       READ 
+       {
+
+       }
+       | 
+       WRITE 
+       {
+
+       }
+       | 
+       RETURN 
+       {
+
+       }
+       | 
+       BLK
+       {
+
+       }
+;
+
+RETURN : token_return EXP ';' 
+         {
+
+         }
+         |
+         token_return ';'
+         {
+
+         }
+;
+
+WRITE : token_write '(' EXP ')' ';' 
+        {
+
+        }
+        |
+        token_write '(' token_str ')' ';'
+        {
+
+        }
+;
+
+READ : token_read '(' LVAL ')' ';'
+        {
+
+        }
+;
+
+ASSN : LVAL token_assign EXP ';'
+        {
+
+        }
+;
+
+LVAL : token_id
+        {
+
+        }
+;
+
+CNTRL : token_if BEXP token_then STMT token_else STMT 
+        {
+
+        }
+        |
+        token_if BEXP token_then STMT 
+        {
+
+        }
+        |
+        token_while BEXP token_do STMT
+        {
+
+        }
+;
+
+BEXP : BEXP token_or BEXP 
+       {
+
+       }
+       |
+       BEXP token_and BEXP
+       {
+
+       }
+       |
+       token_not BEXP
+       {
+
+       }
+       |
+       EXP token_relop EXP
+       {
+
+       }
+       |
+       '(' BEXP ')'
+       {
+
+       }
+;
+
+EXP : EXP token_addop EXP
+      {
+
+      }
+      |
+      EXP token_mulop EXP
+      {
+
+      }
+      |
+      '(' EXP ')'
+      {
+
+      }
+      |
+      '(' TYPE ')' EXP
+      {
+
+      }
+      |
+      token_id 
+      {
+
+      }
+      |
+      NUM 
+      {
+
+      }
+      |
+      CALL 
+      {
+
+      }
+      |
+      VA_MATERIALISE
+      {
+
+      }
+;
+
+NUM : token_integernum
+      {
+
+      }
+      | 
+      token_realnum
+      {
+
+      }
+;
+
+CALL : token_id '(' CALL_ARGS ')'
+      {
+
+      }
+;
+
+VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
+                 {
+
+                 }
+;
+
+CALL_ARGS : CALL_ARGLIST 
+            {
+
+            }
+            |
+            /*epsilon*/
+            {
+
+            }
+;
+
+CALL_ARGLIST : CALL_ARGLIST ',' EXP 
+                {
+
+                }
+                |
+               EXP
+               {
+
+               }
+;
+
+%%
+
+int main(int argc, char* argv[]) {
+   if (argc != 2 ){
+      cerr << "A single .cmm file should be provided.\nUsage: rx-cc <input_file_name>.cmm" << endl;
+      return OPERATIONAL_ERROR;
+   }
+   string cmm_file = argv[1];
+   if (cmm_file.find(".cmm") == string::npos) {
+      cerr << "The provided file must be a .cmm file" << endl;
+      return OPERATIONAL_ERROR;
+   }
+   string file_name = cmm_file.substr(0,cmm_file.find(".cmm"));
+   ofstream rsk_file(file_name + ".rsk");
+   int rc = 0;
+   if (rsk_file.is_open()) {
+      #if YYDEBUG
+      yydebug=1;
+      #endif
+      rc = yyparse();
+      if (rc == 0) { // Parsed successfully
+         rsk_file << buffer->printBuffer();
+      }
+      rsk_file.close();
+   } else {
+      cerr << "Error: could not create a rsk file" << endl;
+      return OPERATIONAL_ERROR;
+   }
+   return rc;
+}
+
+void yyerror(const char* c)
+{
+    printf("Syntax error: '%s' in line number %d\n",yytext,yylineno);
+    exit(2);
+}
