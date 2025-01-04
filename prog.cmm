@@ -1,2 +1,6 @@
-d:int;
-d = 3;
+void main() {
+    a,b:int;
+    #c:float;
+    read(a);
+    #c = 6.0;
+}

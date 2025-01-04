@@ -4,10 +4,15 @@
     
     int main(int argc, char* argv[]);
     void yyerror(const char* c);
+    void semanticError(string str);
+
+    void handleSymbolDcl(string name, Type type);
 
     extern int yylex();
     extern char *yytext;
     extern int yylineno;
+
+    void DBG(string str);
 %}
 
 %token token_int token_float token_void token_write token_read token_va_arg token_while token_do token_return token_id token_integernum token_realnum token_str token_ellipsis
@@ -79,7 +84,7 @@ FUNC_DEF_API : TYPE token_id '(' ')'
                }
 ;
 
-FUNC_ARGLIST : FUNC_ARGLIST ',' DCL 
+FUNC_ARGLIST : FUNC_ARGLIST ',' DCL
                {
 
                }
@@ -90,36 +95,52 @@ FUNC_ARGLIST : FUNC_ARGLIST ',' DCL
                }
 ;
 
-BLK : '{' STLIST '}'
+BLK : '{' M_BLK_START STLIST M_BLK_END '}'
       {
 
       }
 ;
 
-DCL : token_id ':' TYPE 
-      {
+M_BLK_START:  /*epsilon*/
+        {
+            current_block_depth++;
+            num_of_created_ids = 0;
+        }
+;
 
+M_BLK_END:  /*epsilon*/
+        {
+            current_block_depth--;
+        }
+;
+
+
+DCL : token_id ':' TYPE
+      {
+            handleSymbolDcl($1.name, $3.type);
+            $$.type = $3.type;
       }
       |
       token_id ',' DCL
       {
-
+            handleSymbolDcl($1.name, $3.type);
+            $$.type = $3.type;
       }
 ;
 
 TYPE : token_int
        {
-
+            $$.type = int_;
        }
        | 
        token_float 
        {
-
+            $$.type = float_;
        }
        | 
        token_void
        {
-
+            $$.type = void_t;
        }
 ;
 
@@ -134,9 +155,11 @@ STLIST : STLIST STMT
          }
 ;
 
-STMT : DCL ';' 
+STMT : DCL ';'
        {
-
+            int stack_pointer_inc_by_bytes = (4*num_of_created_ids);
+            buffer->emit("ADD2I I2 I2 " + intToString(stack_pointer_inc_by_bytes));
+            num_of_created_ids = 0;
        }
        |
        ASSN 
@@ -199,19 +222,41 @@ WRITE : token_write '(' EXP ')' ';'
 
 READ : token_read '(' LVAL ')' ';'
         {
+            // Calc the address of the variable from the base pointer I1
+            int address_register = (next_int_register++);
+            buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($3.offset));
 
+            // Use READ and store in temp register
+            string int_float = (($3.type == int_) ? "I" : "F");
+            int value_register = ($3.type == int_ ? next_int_register++ : next_float_register++);
+            buffer->emit("READ" + int_float + " " + int_float + intToString(value_register));
+
+            //Store the value in the memory of the LVAL
+            buffer->emit("STOR" + int_float + " " + int_float + intToString(value_register) + " I" + intToString(address_register) + " " + intToString(0));
         }
 ;
 
 ASSN : LVAL token_assign EXP ';'
         {
+            // Calc the address of LVAL
+            int address_register = (next_int_register++);
+            buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($1.offset)); // Calc the address of the variable from the base pointer I1
 
+            // Store the EXP in LVAL memory
+            string int_float = (($3.type == int_) ? "I" : "F");
+            buffer->emit("STOR" + int_float + " " + int_float + intToString($3.RegNum) + " I" + intToString(address_register) + " " + intToString(0));
         }
 ;
 
 LVAL : token_id
         {
-
+            // Check that id exists in the symbolTable
+            if (symbolTable.find($1.name) == symbolTable.end()) {
+                semanticError("Undefined variable " + $1.name);
+            }
+            $$.name = $1.name;
+            $$.type = symbolTable[$1.name].type[current_block_depth];
+            $$.offset = symbolTable[$1.name].offset[current_block_depth];
         }
 ;
 
@@ -277,17 +322,17 @@ EXP : EXP token_addop EXP
 
       }
       |
-      token_id 
+      token_id
       {
 
       }
       |
-      NUM 
+      NUM
       {
-
+        $$ = $1;
       }
       |
-      CALL 
+      CALL
       {
 
       }
@@ -300,12 +345,18 @@ EXP : EXP token_addop EXP
 
 NUM : token_integernum
       {
-
+        $$.type = int_;
+        $$.RegNum = next_int_register++;
+        $$.name = $1.name;
+        buffer->emit("COPYI I" + intToString($$.RegNum) + " " + $1.name);
       }
       | 
       token_realnum
       {
-
+        $$.type = float_;
+        $$.RegNum = next_float_register++;
+        $$.name = $1.name;
+        buffer->emit("COPYF F" + intToString($$.RegNum) + " " + $1.name);
       }
 ;
 
@@ -346,36 +397,99 @@ CALL_ARGLIST : CALL_ARGLIST ',' EXP
 %%
 
 int main(int argc, char* argv[]) {
+
    if (argc != 2 ){
       cerr << "A single .cmm file should be provided.\nUsage: rx-cc <input_file_name>.cmm" << endl;
       return OPERATIONAL_ERROR;
    }
+
    string cmm_file = argv[1];
    if (cmm_file.find(".cmm") == string::npos) {
       cerr << "The provided file must be a .cmm file" << endl;
       return OPERATIONAL_ERROR;
    }
-   string file_name = cmm_file.substr(0,cmm_file.find(".cmm"));
-   ofstream rsk_file(file_name + ".rsk");
-   int rc = 0;
-   if (rsk_file.is_open()) {
-      #if YYDEBUG
-      yydebug=1;
-      #endif
-      rc = yyparse();
-      if (rc == 0) { // Parsed successfully
-         rsk_file << buffer->printBuffer();
-      }
-      rsk_file.close();
-   } else {
-      cerr << "Error: could not create a rsk file" << endl;
+
+   extern FILE *yyin;
+   yyin = fopen(cmm_file.c_str(), "r");
+   if (!yyin) {
+      cerr << "Couldn't open the provided file: " << cmm_file << endl;
       return OPERATIONAL_ERROR;
    }
-   return rc;
+
+   // Initialize the buffer global pointer
+   Buffer program_buffer;
+   buffer = &program_buffer;
+
+   // Run the Parser
+   yyparse();
+
+   cout << "done parsing" << endl; // TODO: remove
+
+   // Create the .rsk file 
+   ofstream rsk_file(cmm_file.substr(0,cmm_file.find(".cmm")) + ".rsk");
+   if (!rsk_file.is_open()) {
+      cerr << "Couldn't create .rsk file" << endl;
+      return OPERATIONAL_ERROR;
+   }
+
+   rsk_file << buffer->printBuffer();
+   rsk_file.close();
+
+   return 0;
 }
+
+/*** Errors handling ***/
 
 void yyerror(const char* c)
 {
     printf("Syntax error: '%s' in line number %d\n",yytext,yylineno);
-    exit(2);
+    exit(SYNTAX_ERROR);
+}
+
+void semanticError(string str)
+{
+    cerr << "Semantic error: " << str << " in line number " << yylineno << endl;
+    exit(SEMANTIC_ERROR);
+}
+
+
+/* Helper methods */
+
+void handleSymbolDcl(string name, Type type) {
+    // void_t is not a valid symbol type
+    if (type == void_t) {
+        semanticError(name + " declared as void");
+    }
+    // Check if symbol already exists
+    if (symbolTable.find(name) != symbolTable.end()) {
+        // Symbol exist. Need to check if the same scope.
+        Symbol sym = symbolTable.at(name);
+        if (sym.type.find(current_block_depth) != sym.type.end()) {
+                semanticError("variable \"" + name + "\" is already declared previously. Redefinition");
+        }
+        
+        // New symbol. Add to the map.
+        sym.type[current_block_depth] = type;
+        sym.offset[current_block_depth] = current_stack_pointer;
+        current_stack_pointer += 4;
+        sym.depth = max(sym.depth, current_block_depth);
+    } else {
+        // Symbol doesn't exist. Create a new one.
+        Symbol new_symbol;
+        new_symbol.type[current_block_depth] = type;
+        new_symbol.offset[current_block_depth] = current_stack_pointer;
+        current_stack_pointer += 4;
+        new_symbol.depth = current_block_depth;
+        // Add to the symbol table
+        symbolTable[name] = new_symbol;
+        //DBG("adding new symbol. name = " + name + ", type = " + intToString(type) + ", depth = " + intToString(current_block_depth) + ", offset = " + intToString(new_symbol.offset[current_block_depth]));
+    }
+    num_of_created_ids++;
+}
+
+
+/*** For debug only ***/
+
+void DBG(string str) {
+    cout << "***DBG*** " << str << endl;
 }

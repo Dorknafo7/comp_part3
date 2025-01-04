@@ -1,7 +1,7 @@
 %{
 #include <stdio.h>
-#include "part3.tab.hpp"
 #include "part3_helpers.hpp"
+#include "part3.tab.hpp"
 void printLexErrorAndExit();
 %}
 
@@ -43,9 +43,9 @@ if              { return token_if;         }
 then            { return token_then;       }
 else            { return token_else;       }
 return          { return token_return;     }
-{id}            { return token_id;         }
-{integernum}    { return token_integernum; }
-{realnum}       { return token_realnum;    }
+{id}            { yylval.name = yytext; return token_id;         }
+{integernum}    { yylval.name = yytext; return token_integernum; }
+{realnum}       { yylval.name = yytext; return token_realnum;    }
 {str}           { yytext[yyleng-1] = '\0';
                   yytext += 1;
                   return token_str;        }
