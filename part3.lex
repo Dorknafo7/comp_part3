@@ -48,6 +48,7 @@ return          { return token_return;     }
 {realnum}       { yylval.name = yytext; return token_realnum;    }
 {str}           { yytext[yyleng-1] = '\0';
                   yytext += 1;
+                  yylval.name = yytext;
                   return token_str;        }
 {sign}          { return yytext[0];        }
 {ellipsis}      { return token_ellipsis;   }

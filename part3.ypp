@@ -209,14 +209,38 @@ RETURN : token_return EXP ';'
          }
 ;
 
-WRITE : token_write '(' EXP ')' ';' 
+WRITE : token_write '(' EXP ')' ';'
         {
-
+            // Check if EXP exists in symbol table
+            if (symbolTable.find($3.name) == symbolTable.end()) {
+                semanticError("Variable " + $3.name + " is not defined");
+            }
+            Symbol sym = symbolTable.at($3.name);
+            Type type  = sym.type.at(current_block_depth);
+            int offset = sym.offset.at(current_block_depth);
+            string int_float = (type == int_ ? "I" : "F");
+            int address_register = (type == int_ ? next_int_register++ : next_float_register++);
+            buffer->emit("LOAD" + int_float + " " + int_float + intToString(address_register) + " I1 " + intToString(offset));
+            buffer->emit("PRNT" + int_float + " " + int_float + intToString(address_register));
         }
         |
         token_write '(' token_str ')' ';'
         {
-
+            string str = $3.name;
+            for (size_t i = 0; i < str.length(); i++) {
+                char ch = str[i];
+                if (ch == '\\') {
+                    if(str[i+1] == 'n') {
+                        ch = '\n';
+                    } else if (str[i+1] == 't') {
+                        ch = '\t';
+                    } else if (str[i+1] == '"') {
+                        ch = '\"';
+                    }
+                    i++;
+                }
+                buffer->emit("PRNTC " + intToString(static_cast<int>(ch)));
+            }
         }
 ;
 
@@ -324,7 +348,7 @@ EXP : EXP token_addop EXP
       |
       token_id
       {
-
+        $$.name = $1.name;
       }
       |
       NUM

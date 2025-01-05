@@ -1,6 +1,7 @@
 void main() {
     a,b:int;
-    #c:float;
     read(a);
-    #c = 6.0;
+    write(a);
+    write("\"a\" has ");
+    write("digits\n");
 }
