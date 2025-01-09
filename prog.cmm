@@ -1,7 +1,12 @@
 void main() {
     a,b:int;
-    read(a);
-    write(a);
-    write("\"a\" has ");
-    write("digits\n");
+    a = 0;
+    b = 5;
+
+    if (a < b ) then { 
+        write("a < b");
+    } else {
+        write ("b > a");
+    }
+
 }

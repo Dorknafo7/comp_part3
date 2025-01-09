@@ -52,7 +52,7 @@ return          { return token_return;     }
                   return token_str;        }
 {sign}          { return yytext[0];        }
 {ellipsis}      { return token_ellipsis;   }
-{relop}         { return token_relop;      }
+{relop}         { yylval.name = yytext; return token_relop; }
 {addop}         { return token_addop;      }
 {mulop}         { return token_mulop;      }
 {assign}        { return token_assign;     }

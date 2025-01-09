@@ -17,5 +17,5 @@ flex_part3.cpp flex_part3.h: part3.lex
 .PHONY: clean
 
 clean:
-	rm -f rx-cc flex_part3.cpp flex_part3.h part3.tab.cpp part3.tab.hpp *.rsk
+	rm -f rx-cc flex_part3.cpp flex_part3.h part3.tab.cpp part3.tab.hpp
 

@@ -146,7 +146,7 @@ static map<string, Symbol> symbolTable;			// Table that contains all symbols def
 static map<string, Function> functionTable;		// Table that contains all functions - each function with it's members
 /**********************************************************************************************/
 
-static int num_of_created_ids = 0; // used in DCL for counting the ids
+static int dcl_num_ids = 0;
 static int current_block_depth = 0;
 static int current_base_pointer = 0;
 static int current_stack_pointer = 0;

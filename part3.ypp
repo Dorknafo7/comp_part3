@@ -7,6 +7,7 @@
     void semanticError(string str);
 
     void handleSymbolDcl(string name, Type type);
+    void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list);
 
     extern int yylex();
     extern char *yytext;
@@ -15,7 +16,20 @@
     void DBG(string str);
 %}
 
-%token token_int token_float token_void token_write token_read token_va_arg token_while token_do token_return token_id token_integernum token_realnum token_str token_ellipsis
+%token token_int
+%token token_float
+%token token_void
+%token token_write
+%token token_read
+%token token_va_arg
+%token token_while
+%token token_do
+%token token_return
+%token token_id
+%token token_integernum
+%token token_realnum
+%token token_str
+%token token_ellipsis
 %nonassoc token_if token_then
 %nonassoc token_else
 %right token_assign
@@ -25,8 +39,13 @@
 %left token_addop
 %left token_mulop
 %right token_not
+%left ','
 %left '('
 %left ')'
+%left '{'
+%left '}'
+%left ':'
+%left ';'
 
 %%
 
@@ -104,7 +123,7 @@ BLK : '{' M_BLK_START STLIST M_BLK_END '}'
 M_BLK_START:  /*epsilon*/
         {
             current_block_depth++;
-            num_of_created_ids = 0;
+            dcl_num_ids = 0;
         }
 ;
 
@@ -157,44 +176,44 @@ STLIST : STLIST STMT
 
 STMT : DCL ';'
        {
-            int stack_pointer_inc_by_bytes = (4*num_of_created_ids);
+            int stack_pointer_inc_by_bytes = (4 * dcl_num_ids);
             buffer->emit("ADD2I I2 I2 " + intToString(stack_pointer_inc_by_bytes));
-            num_of_created_ids = 0;
+            dcl_num_ids = 0;
        }
        |
-       ASSN 
+       ASSN
        {
-
+            /*do nothing*/
        }
        |
        EXP ';' 
        {
-
+        /*do nothing*/
        }
        |
-       CNTRL 
+       CNTRL M
        {
-
+            buffer->backpatch($1.nextList, $2.quad);
        }
        | 
        READ 
        {
-
+        /*do nothing*/
        }
        | 
        WRITE 
        {
-
+        /*do nothing*/
        }
        | 
        RETURN 
        {
-
+        /*do nothing*/
        }
        | 
        BLK
-       {
-
+       {    
+        /*do nothing*/
        }
 ;
 
@@ -211,17 +230,8 @@ RETURN : token_return EXP ';'
 
 WRITE : token_write '(' EXP ')' ';'
         {
-            // Check if EXP exists in symbol table
-            if (symbolTable.find($3.name) == symbolTable.end()) {
-                semanticError("Variable " + $3.name + " is not defined");
-            }
-            Symbol sym = symbolTable.at($3.name);
-            Type type  = sym.type.at(current_block_depth);
-            int offset = sym.offset.at(current_block_depth);
-            string int_float = (type == int_ ? "I" : "F");
-            int address_register = (type == int_ ? next_int_register++ : next_float_register++);
-            buffer->emit("LOAD" + int_float + " " + int_float + intToString(address_register) + " I1 " + intToString(offset));
-            buffer->emit("PRNT" + int_float + " " + int_float + intToString(address_register));
+            string int_float = ($3.type == int_ ? "I" : "F");
+            buffer->emit("PRNT" + int_float + " " + int_float + intToString($3.RegNum));
         }
         |
         token_write '(' token_str ')' ';'
@@ -255,6 +265,13 @@ READ : token_read '(' LVAL ')' ';'
             int value_register = ($3.type == int_ ? next_int_register++ : next_float_register++);
             buffer->emit("READ" + int_float + " " + int_float + intToString(value_register));
 
+            if ($3.type == float_) {
+                // convert the address_register to float
+                int float_address_register = next_float_register++;
+                buffer->emit("CITOF F" + intToString(float_address_register) + " I" + intToString(address_register));
+                address_register = float_address_register;
+            }
+
             //Store the value in the memory of the LVAL
             buffer->emit("STOR" + int_float + " " + int_float + intToString(value_register) + " I" + intToString(address_register) + " " + intToString(0));
         }
@@ -262,13 +279,26 @@ READ : token_read '(' LVAL ')' ';'
 
 ASSN : LVAL token_assign EXP ';'
         {
+            // Check types
+            if ($1.type != $3.type) {
+                semanticError("Try to assign different types");
+            }
+
             // Calc the address of LVAL
             int address_register = (next_int_register++);
             buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($1.offset)); // Calc the address of the variable from the base pointer I1
 
-            // Store the EXP in LVAL memory
             string int_float = (($3.type == int_) ? "I" : "F");
-            buffer->emit("STOR" + int_float + " " + int_float + intToString($3.RegNum) + " I" + intToString(address_register) + " " + intToString(0));
+
+            if ($1.type == float_) {
+                // convert the address_register to float
+                int float_address_register = next_float_register++;
+                buffer->emit("CITOF F" + intToString(float_address_register) + " I" + intToString(address_register));
+                address_register = float_address_register;
+            }
+
+            // Store the EXP in LVAL memory
+            buffer->emit("STOR" + int_float + " " + int_float + intToString($3.RegNum) + " " + int_float + intToString(address_register) + " " + intToString(0));
         }
 ;
 
@@ -278,77 +308,174 @@ LVAL : token_id
             if (symbolTable.find($1.name) == symbolTable.end()) {
                 semanticError("Undefined variable " + $1.name);
             }
+            int token_id_block = current_block_depth;
+            if (symbolTable[$1.name].type.find(current_block_depth) == symbolTable[$1.name].type.end()) {
+                // exp is defined in upper block
+                for (int i = current_block_depth - 1; i > 0; i--) {
+                    if (symbolTable[$1.name].type.find(i) != symbolTable[$1.name].type.end()){
+                        token_id_block = i;
+                        break;
+                    }
+                }
+            }
             $$.name = $1.name;
-            $$.type = symbolTable[$1.name].type[current_block_depth];
-            $$.offset = symbolTable[$1.name].offset[current_block_depth];
+            $$.type = symbolTable[$1.name].type[token_id_block];
+            $$.offset = symbolTable[$1.name].offset[token_id_block];
         }
 ;
 
-CNTRL : token_if BEXP token_then STMT token_else STMT 
-        {
+N : /*epsilon*/
+    {
+        $$.nextList.push_back(buffer->nextQuad());
+        buffer->emit("UJUMP "); // to backpatch
+    }
 
+M : /*epsilon*/
+    {
+      $$.quad = buffer->nextQuad();
+    }
+;
+
+CNTRL : token_if BEXP token_then M STMT token_else N M STMT
+        {
+            buffer->backpatch($2.trueList, $4.quad);
+            buffer->backpatch($2.falseList, $8.quad);
+            $$.nextList = merge<int>($5.nextList, $7.nextList);
+            $$.nextList = merge<int>($$.nextList, $9.nextList);
         }
         |
-        token_if BEXP token_then STMT 
+        token_if BEXP token_then M STMT
         {
-
+            buffer->backpatch($2.trueList, $4.quad);
+            $$.nextList = merge<int>($2.falseList, $5.nextList);
         }
         |
-        token_while BEXP token_do STMT
+        token_while M BEXP token_do M STMT
         {
-
+            buffer->backpatch($6.nextList, $2.quad);
+            buffer->backpatch($3.trueList, $5.quad);
+            $$.nextList = $3.falseList;
+            buffer->emit("UJUMP " + intToString($2.quad));
         }
 ;
 
-BEXP : BEXP token_or BEXP 
+BEXP : BEXP token_or M BEXP 
        {
-
+            buffer->backpatch($1.falseList, $3.quad);
+            $$.trueList = merge<int>($1.trueList, $4.trueList);
+            $$.falseList = $4.falseList;
        }
        |
-       BEXP token_and BEXP
+       BEXP token_and M BEXP
        {
-
+           buffer->backpatch($1.trueList, $3.quad);
+           $$.trueList = $4.trueList;
+           $$.falseList = merge<int>($1.falseList, $4.falseList);
        }
        |
        token_not BEXP
        {
-
+           $$.trueList  = $2.falseList;
+           $$.falseList = $2.trueList;
        }
        |
        EXP token_relop EXP
        {
+            if ($1.type != $3.type) {
+                semanticError("Try to do relop between different types");
+            }
 
+            string relop = $2.name;
+            Type type = $1.type;
+
+            if      (relop == "==") { handleExpRelopExp("SNEQ", "BREQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
+            else if (relop == "<>") { handleExpRelopExp("SEQU", "BREQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
+            else if (relop == "<")  { handleExpRelopExp("SLET", "BNEQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
+            else if (relop == "<=") { handleExpRelopExp("SGRT", "BREQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
+            else if (relop == ">")  { handleExpRelopExp("SGRT", "BNEQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
+            else if (relop == ">=") { handleExpRelopExp("SLET", "BREQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
        }
        |
        '(' BEXP ')'
        {
-
+            $$ = $2;
        }
 ;
 
 EXP : EXP token_addop EXP
       {
-
+        // TODO: add SUB
+        if ($1.type != $3.type) {
+             semanticError("Try to sum different types");
+        }
+        Type type = $1.type;
+        $$.type = type;
+        $$.RegNum = (type == int_ ? next_int_register++ : next_float_register++);
+        string int_float = (type == int_ ? "I" : "F");
+        buffer->emit("ADD2" + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
       }
       |
       EXP token_mulop EXP
       {
-
+        // TODO: add DIVD
+        if ($1.type != $3.type) {
+            semanticError("Try to multiply different types");
+        }
+        Type type = $1.type;
+        $$.type = type;
+        $$.RegNum = (type == int_ ? next_int_register++ : next_float_register++);
+        string int_float = (type == int_ ? "I" : "F");
+        buffer->emit("MULT" + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
       }
       |
       '(' EXP ')'
       {
-
+        $$ = $2;
       }
       |
       '(' TYPE ')' EXP
       {
-
+        $$.type = $2.type;
+        $$.RegNum = ($$.type == int_ ? next_int_register++ : next_float_register++);
+        if ($$.type == int_) {
+            buffer->emit("CFTOI I" + intToString($$.RegNum) + " F" + intToString($4.RegNum));
+        } else {
+            buffer->emit("CITOF F" + intToString($$.RegNum) + " I" + intToString($4.RegNum));
+        }
       }
       |
       token_id
       {
+        // Check that id exists in the symbolTable
+        if (symbolTable.find($1.name) == symbolTable.end()) {
+            semanticError("Undefined variable " + $1.name);
+        }
+        int token_id_block = current_block_depth;
+        if (symbolTable[$1.name].type.find(current_block_depth) == symbolTable[$1.name].type.end()) {
+            // exp is defined in upper block
+            for (int i = current_block_depth - 1; i > 0; i--) {
+                if (symbolTable[$1.name].type.find(i) != symbolTable[$1.name].type.end()){
+                    token_id_block = i;
+                    break;
+                }
+            }
+        }
         $$.name = $1.name;
+        $$.type = symbolTable[$1.name].type[token_id_block];
+        $$.offset = symbolTable[$1.name].offset[token_id_block];
+
+        // Read the token_id value from memory and store it in register
+        int address_register = next_int_register++;
+        buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($$.offset));
+        string int_float = ($$.type == int_ ? "I" : "F");
+        if ($$.type == float_) {
+            // convert the address_register to float
+            int float_address_register = next_float_register++;
+            buffer->emit("CITOF F" + intToString(float_address_register) + " I" + intToString(address_register));
+            address_register = float_address_register;
+        }
+        $$.RegNum = ($$.type == int_ ? next_int_register++ : next_float_register++);
+        buffer->emit("LOAD" + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString(address_register) + " " + intToString(0));
       }
       |
       NUM
@@ -420,6 +547,56 @@ CALL_ARGLIST : CALL_ARGLIST ',' EXP
 
 %%
 
+/* Helper methods */
+
+void handleSymbolDcl(string name, Type type) {
+    // void_t is not a valid symbol type
+    if (type == void_t) {
+        semanticError(name + " declared as void");
+    }
+    // Check if symbol already exists
+    if (symbolTable.find(name) != symbolTable.end()) {
+        // Symbol exist. Need to check if the same scope.
+        Symbol sym = symbolTable.at(name);
+        if (sym.type.find(current_block_depth) != sym.type.end()) {
+                semanticError("variable \"" + name + "\" is already declared previously. Redefinition");
+        }
+        
+        // New symbol. Add to the map.
+        sym.type[current_block_depth] = type;
+        sym.offset[current_block_depth] = current_stack_pointer;
+        current_stack_pointer += 4;
+        sym.depth = max(sym.depth, current_block_depth);
+    } else {
+        // Symbol doesn't exist. Create a new one.
+        Symbol new_symbol;
+        new_symbol.type[current_block_depth] = type;
+        new_symbol.offset[current_block_depth] = current_stack_pointer;
+        current_stack_pointer += 4;
+        new_symbol.depth = current_block_depth;
+        // Add to the symbol table
+        symbolTable[name] = new_symbol;
+    }
+    dcl_num_ids++;
+}
+
+void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list) {
+    string int_float = (type == int_ ? "I" : "F");
+    int tmp_register = (type == int_ ? next_int_register++ : next_float_register++);
+    buffer->emit(opcode_without_type + int_float + " " + int_float + intToString(tmp_register) + " " + int_float + intToString(exp1_regnum) + " " + int_float + intToString(exp2_regnum));
+    int branch_register = tmp_register;
+    if (type == float_) {
+        // BREQZ works on int register, need to convert float to int.
+        branch_register = next_int_register++;
+        buffer->emit("CFTOI I" + intToString(branch_register) + " F" + intToString(tmp_register));
+    }
+    true_list.push_back(buffer->nextQuad());
+    buffer->emit(opcode_breqz_bneqz + " I" + intToString(branch_register) + " ");
+    false_list.push_back(buffer->nextQuad());
+    buffer->emit("UJUMP ");
+}
+
+
 int main(int argc, char* argv[]) {
 
    if (argc != 2 ){
@@ -474,41 +651,6 @@ void semanticError(string str)
 {
     cerr << "Semantic error: " << str << " in line number " << yylineno << endl;
     exit(SEMANTIC_ERROR);
-}
-
-
-/* Helper methods */
-
-void handleSymbolDcl(string name, Type type) {
-    // void_t is not a valid symbol type
-    if (type == void_t) {
-        semanticError(name + " declared as void");
-    }
-    // Check if symbol already exists
-    if (symbolTable.find(name) != symbolTable.end()) {
-        // Symbol exist. Need to check if the same scope.
-        Symbol sym = symbolTable.at(name);
-        if (sym.type.find(current_block_depth) != sym.type.end()) {
-                semanticError("variable \"" + name + "\" is already declared previously. Redefinition");
-        }
-        
-        // New symbol. Add to the map.
-        sym.type[current_block_depth] = type;
-        sym.offset[current_block_depth] = current_stack_pointer;
-        current_stack_pointer += 4;
-        sym.depth = max(sym.depth, current_block_depth);
-    } else {
-        // Symbol doesn't exist. Create a new one.
-        Symbol new_symbol;
-        new_symbol.type[current_block_depth] = type;
-        new_symbol.offset[current_block_depth] = current_stack_pointer;
-        current_stack_pointer += 4;
-        new_symbol.depth = current_block_depth;
-        // Add to the symbol table
-        symbolTable[name] = new_symbol;
-        //DBG("adding new symbol. name = " + name + ", type = " + intToString(type) + ", depth = " + intToString(current_block_depth) + ", offset = " + intToString(new_symbol.offset[current_block_depth]));
-    }
-    num_of_created_ids++;
 }
 
 
