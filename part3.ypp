@@ -273,7 +273,7 @@ READ : token_read '(' LVAL ')' ';'
             }
 
             //Store the value in the memory of the LVAL
-            buffer->emit("STOR" + int_float + " " + int_float + intToString(value_register) + " I" + intToString(address_register) + " " + intToString(0));
+            buffer->emit("STOR" + int_float + " " + int_float + intToString(value_register) + " " + int_float + intToString(address_register) + " " + intToString(0));
         }
 ;
 
