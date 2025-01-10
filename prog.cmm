@@ -1,12 +1,11 @@
+int test(a,b:int) {
+    return a + b;
+}
+
+
 void main() {
-    a,b:float;
-    a = 3.0;
-    b = 6.0;
-
-    if ( (b/a) == 2 ) then { 
-        write(1);
-    } else {
-        write (2);
-    }
-
+    a,b:int;
+    a = 2;
+    b = 3;
+    write(test(a+b));
 }

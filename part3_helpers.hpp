@@ -148,9 +148,13 @@ static map<string, Function> functionTable;		// Table that contains all function
 
 static int dcl_num_ids = 0;
 static int current_block_depth = 0;
-static int current_base_pointer = 0;
 static int current_stack_pointer = 0;
 static int next_int_register = 3;
 static int next_float_register = 3;
+
+static vector<string> function_arguments;
+static vector<string> func_args_reversed;
+static Type current_return_type;
+
 
 #endif

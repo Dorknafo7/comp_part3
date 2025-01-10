@@ -1,6 +1,7 @@
 %{
     #include <stdio.h>
     #include "part3_helpers.hpp"
+    #include <cassert>
     
     int main(int argc, char* argv[]);
     void yyerror(const char* c);
@@ -14,6 +15,7 @@
     extern int yylineno;
 
     void DBG(string str);
+    void DbgPrintAllFunctions();
 %}
 
 %token token_int
@@ -57,12 +59,18 @@ PROGRAM: FDEFS
 
 FDEFS : FDEFS FUNC_DEF_API BLK
         {
+            symbolTable.clear();
+            function_arguments.clear();
+            current_stack_pointer = 0;
+            current_block_depth   = 0;
 
+            buffer->emit("RETRN");
         }
         |
         FDEFS FUNC_DEC_API 
         {
-
+            function_arguments.clear();
+            symbolTable.clear();
         }
         |
         /*epsilon*/
@@ -71,46 +79,127 @@ FDEFS : FDEFS FUNC_DEF_API BLK
         }
 ;
 
-FUNC_DEC_API : TYPE token_id '(' ')' ';'
+FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                {
-
+                    if (functionTable.find($2.name) != functionTable.end()) {
+                        DBG("WARNING: function \"" + $2.name + "\" is already defined/declared"); // TODO: remove when below checkers implemented
+                        // TODO: function is already defined/declared. need to verify all the params are the same (return type, number of param, types...)
+                    }
+                    else {
+                        // New function. Add to the functionTable
+                        Function new_func;
+                        new_func.returnType              = $1.type;
+                        new_func.isDefined               = false;
+                        new_func.startLineImplementation = -1;
+                        functionTable[$2.name]           = new_func;
+                    }
                }
                |
-               TYPE token_id '(' FUNC_ARGLIST ')' ';' 
+               TYPE token_id '(' M FUNC_ARGLIST ')' ';'
                {
-
+                    if (functionTable.find($2.name) != functionTable.end()) {
+                        DBG("WARNING: function \"" + $2.name + "\" is already defined/declared"); // TODO: remove when below checkers implemented
+                        // TODO: function is already defined/declared. need to verify all the params are the same (return type, number of param, types...)
+                    }
+                    else {
+                        // New function. Add to the functionTable
+                        Function new_func;
+                        for (auto arg : function_arguments) {
+                            new_func.paramTypes.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            new_func.paramIds.push_back(arg);
+                        }
+                        new_func.returnType              = $1.type;
+                        new_func.isDefined               = false;
+                        new_func.startLineImplementation = -1;
+                        functionTable[$2.name]           = new_func;
+                        
+                    }
                }
                |
-               TYPE token_id '(' FUNC_ARGLIST ',' token_ellipsis ')' ';'
+               TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')' ';'
                {
-
+                    // TODO
                }
 ;
 
-FUNC_DEF_API : TYPE token_id '(' ')' 
+FUNC_DEF_API : TYPE token_id '(' M ')' 
                {
-
+                    if (functionTable.find($2.name) != functionTable.end()) {
+                        // Function is already defined/declared.
+                        if (functionTable[$2.name].isDefined) {
+                            semanticError("Redefinition of function \"" + $2.name +"\"");
+                        }
+                        // else the function is already declared but not defined. TODO: add verification of parameters.
+                    }
+                    else {
+                        // New function. Add to the functionTable
+                        Function new_func;
+                        new_func.returnType              = $1.type;
+                        new_func.startLineImplementation = $4.quad;
+                        new_func.isDefined               = true;
+                        functionTable[$2.name]           = new_func;
+                    }
+                    current_return_type = $1.type;
                }
                |
-               TYPE token_id '(' FUNC_ARGLIST ')' 
+               TYPE token_id '(' M FUNC_ARGLIST ')'
                {
-
+                    if (functionTable.find($2.name) != functionTable.end()) {
+                        // Function is already defined/declared.
+                        if (functionTable[$2.name].isDefined) {
+                            semanticError("Redefinition of function \"" + $2.name +"\"");
+                        }
+                        // else the function is already declared but not defined. TODO: add verification of parameters.
+                    }
+                    else {
+                        // New function. Add to the functionTable
+                        Function new_func;
+                        for (auto arg : function_arguments) {
+                            new_func.paramTypes.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            new_func.paramIds.push_back(arg);
+                        }
+                        new_func.returnType              = $1.type;
+                        new_func.startLineImplementation = $4.quad;
+                        new_func.isDefined               = true;
+                        functionTable[$2.name]           = new_func;
+                    }
+                    current_return_type = $1.type;
                }
                |
-               TYPE token_id '(' FUNC_ARGLIST ',' token_ellipsis ')'
+               TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')'
                {
-
+                    // TODO
                }
 ;
 
 FUNC_ARGLIST : FUNC_ARGLIST ',' DCL
                {
-
+                    current_stack_pointer = 0;
+                    // fix argument offset in the symbol table at the current_block_depth
+                    reverse(func_args_reversed.begin(), func_args_reversed.end());
+                    function_arguments.insert(function_arguments.end(), func_args_reversed.begin(), func_args_reversed.end());
+                    for (int i = 0; i < function_arguments.size(); i++) {
+                        // iterating ids by the same order they apper in the arg list
+                        assert(symbolTable.find(function_arguments[i]) != symbolTable.end());
+                        assert(symbolTable[function_arguments[i]].offset.find(current_block_depth) != symbolTable[function_arguments[i]].offset.end());
+                        symbolTable[function_arguments[i]].offset[current_block_depth] = (-4) * (i + 2); // stack = [func_return_val (I0-4), 1st_func_arg (I0-8), 2nd_func_arg(I0-12)...]
+                    }
+                    func_args_reversed.clear();
                }
                |
                DCL
                {
-
+                    current_stack_pointer = 0;
+                    // fix argument offset in the symbol table at the current_block_depth
+                    reverse(func_args_reversed.begin(), func_args_reversed.end());
+                    function_arguments.insert(function_arguments.end(), func_args_reversed.begin(), func_args_reversed.end());
+                    for (int i = 0; i < function_arguments.size(); i++) {
+                        // iterating ids by the same order they apper in the arg list
+                        assert(symbolTable.find(function_arguments[i]) != symbolTable.end());
+                        assert(symbolTable[function_arguments[i]].offset.find(current_block_depth) != symbolTable[function_arguments[i]].offset.end());
+                        symbolTable[function_arguments[i]].offset[current_block_depth] = (-4) * (i + 2); // stack = [func_return_val (I0-4), 1st_func_arg (I0-8), 2nd_func_arg(I0-12)...]
+                    }
+                    func_args_reversed.clear();
                }
 ;
 
@@ -138,12 +227,15 @@ DCL : token_id ':' TYPE
       {
             handleSymbolDcl($1.name, $3.type);
             $$.type = $3.type;
+            func_args_reversed.push_back($1.name);
+            
       }
       |
       token_id ',' DCL
       {
             handleSymbolDcl($1.name, $3.type);
             $$.type = $3.type;
+            func_args_reversed.push_back($1.name);
       }
 ;
 
@@ -217,14 +309,26 @@ STMT : DCL ';'
        }
 ;
 
-RETURN : token_return EXP ';' 
+RETURN : token_return EXP ';'
          {
-
+            if (current_return_type == void_t) {
+                semanticError("Return value from void function");
+            }
+            if (current_return_type != $2.type) {
+                semanticError("Return type is not correct");
+            }
+            // Store the return value in MEM[I1-4]
+            string int_float = ($2.type == int_ ? "I" : "F");
+            if ($2.type == float_) {
+                buffer->emit("CITOF F1 I1");
+            }
+            buffer->emit("STOR" + int_float + " " + int_float + intToString($2.RegNum) + " " + int_float + "1 -4");
+            buffer->emit("RETRN");
          }
          |
          token_return ';'
          {
-
+            buffer->emit("RETRN");
          }
 ;
 
@@ -311,7 +415,7 @@ LVAL : token_id
             int token_id_block = current_block_depth;
             if (symbolTable[$1.name].type.find(current_block_depth) == symbolTable[$1.name].type.end()) {
                 // exp is defined in upper block
-                for (int i = current_block_depth - 1; i > 0; i--) {
+                for (int i = current_block_depth - 1; i >= 0; i--) {
                     if (symbolTable[$1.name].type.find(i) != symbolTable[$1.name].type.end()){
                         token_id_block = i;
                         break;
@@ -450,7 +554,7 @@ EXP : EXP token_addop EXP
         int token_id_block = current_block_depth;
         if (symbolTable[$1.name].type.find(current_block_depth) == symbolTable[$1.name].type.end()) {
             // exp is defined in upper block
-            for (int i = current_block_depth - 1; i > 0; i--) {
+            for (int i = current_block_depth - 1; i >= 0; i--) {
                 if (symbolTable[$1.name].type.find(i) != symbolTable[$1.name].type.end()){
                     token_id_block = i;
                     break;
@@ -482,7 +586,8 @@ EXP : EXP token_addop EXP
       |
       CALL
       {
-
+        $$.RegNum = $1.RegNum;
+        $$.type   =  $1.type;
       }
       |
       VA_MATERIALISE
@@ -510,7 +615,61 @@ NUM : token_integernum
 
 CALL : token_id '(' CALL_ARGS ')'
       {
+           if (functionTable.find($1.name) == functionTable.end()) {
+               semanticError("Try to call undefined function \"" + $1.name + "\"");
+           }
+           // TODO: important to add checks. currently only correct logic is implemented.
+            buffer->emit("CITOF F2 I2");
+            int max_used_reg = max(next_float_register, next_int_register);
+            for (int i=0; i < max_used_reg; i++) {
+                buffer->emit("STORI I" + intToString(i) + " I2 " + intToString(i*4));
+                buffer->emit("STORF F" + intToString(i) + " F2 " + intToString(i*4));
+            }
+            // Inc I2 by 4*(max_used_reg + 1)
+            int i2_addition = 4 * (max_used_reg + 1);
+            buffer->emit("ADD2I I2 I2 " + intToString(i2_addition));
+            buffer->emit("COPYI I1 I2"); // base_pointer = stack_pointer
+            buffer->emit("CITOF F1 I1");
 
+            // Store function's arguments
+            vector<int> param_regs   = $3.paramRegs;
+            vector<Type> params_type = $3.paramTypes;
+            int current_offset = -8; // Starting from -8 since -4 is reserved for the return value.
+            for (int i = 0; i < param_regs.size(); i++) {
+                string int_float = (params_type[i] == int_ ? "I" : "F");
+                buffer->emit("STOR" + int_float + " " + int_float + "1 " + intToString(current_offset - i*4));
+            }
+
+            // Update the calling lines of this function
+            functionTable[$1.name].callingLines.push_back(buffer->nextQuad());
+
+            // And jump to the function
+            Function function = functionTable.at($1.name);
+            int function_start_line_impl = function.startLineImplementation;
+            buffer->emit("JLINK " + intToString(function_start_line_impl));
+
+            // At this point we returned from the function.
+            buffer->emit("COPYI I2 I1");
+
+            // Save the return value
+            int return_value_reg = (function.returnType == int_ ? next_int_register++ : next_float_register++);
+            string int_float     = (function.returnType == int_ ? "I" : "F");
+            if (function.returnType == float_) {
+                buffer->emit("CITOF F1 I1");
+            }
+            buffer->emit("LOAD" + int_float + " " + int_float + intToString(return_value_reg) + " " + int_float + "1 -4");
+            $$.RegNum = return_value_reg;
+            $$.type   =  function.returnType;
+
+            // Reduce the stack (I2) back and restore the saved registers
+            buffer->emit("SUBTI I2 I2 " + intToString(i2_addition));
+            buffer->emit("CITOF F2 I2");
+
+            int offset = 0;
+            for (int i=0; i < max_used_reg; i++) {
+                buffer->emit("LOADI I" + intToString(i) + " I2 " + intToString(i*4));
+                buffer->emit("LOADF F" + intToString(i) + " F2 " + intToString(i*4));
+            }
       }
 ;
 
@@ -522,23 +681,28 @@ VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
 
 CALL_ARGS : CALL_ARGLIST 
             {
-
+                $$.paramRegs  = $1.paramRegs;
+                $$.paramTypes = $1.paramTypes;
             }
             |
             /*epsilon*/
             {
-
+                /*do nothing*/
             }
 ;
 
-CALL_ARGLIST : CALL_ARGLIST ',' EXP 
-                {
-
-                }
-                |
+CALL_ARGLIST : CALL_ARGLIST ',' EXP
+               {
+                    $$.paramRegs  = $1.paramRegs;
+                    $$.paramTypes = $1.paramTypes;
+                    $$.paramRegs.push_back($3.RegNum);
+                    $$.paramTypes.push_back($3.type);
+               }
+               |
                EXP
                {
-
+                    $$.paramRegs.push_back($1.RegNum);
+                    $$.paramTypes.push_back($1.type);
                }
 ;
 
@@ -560,19 +724,18 @@ void handleSymbolDcl(string name, Type type) {
         }
         
         // New symbol. Add to the map.
-        sym.type[current_block_depth] = type;
+        sym.type[current_block_depth]   = type;
         sym.offset[current_block_depth] = current_stack_pointer;
-        current_stack_pointer += 4;
-        sym.depth = max(sym.depth, current_block_depth);
+        sym.depth                       = max(sym.depth, current_block_depth);
+        current_stack_pointer           += 4;
     } else {
         // Symbol doesn't exist. Create a new one.
         Symbol new_symbol;
-        new_symbol.type[current_block_depth] = type;
+        new_symbol.type[current_block_depth]   = type;
         new_symbol.offset[current_block_depth] = current_stack_pointer;
-        current_stack_pointer += 4;
-        new_symbol.depth = current_block_depth;
-        // Add to the symbol table
-        symbolTable[name] = new_symbol;
+        new_symbol.depth                       = current_block_depth;
+        symbolTable[name]                      = new_symbol;
+        current_stack_pointer                  += 4;
     }
     dcl_num_ids++;
 }
@@ -621,14 +784,36 @@ int main(int argc, char* argv[]) {
    // Run the Parser
    yyparse();
 
-   cout << "done parsing" << endl; // TODO: remove
-
    // Create the .rsk file 
    ofstream rsk_file(cmm_file.substr(0,cmm_file.find(".cmm")) + ".rsk");
    if (!rsk_file.is_open()) {
       cerr << "Couldn't create .rsk file" << endl;
       return OPERATIONAL_ERROR;
    }
+
+   // Add header to the buffer
+   
+   buffer->frontEmit("</header>");
+
+   ostringstream implemented;
+   ostringstream unimplemented;
+   implemented   << "<implemented>";
+   unimplemented << "<unimplemented>";
+
+   for(auto func_pair : functionTable) {
+       if (func_pair.second.isDefined) {
+           implemented << " " << func_pair.first << "," << intToString(func_pair.second.startLineImplementation);
+       } else {
+           unimplemented << " " << func_pair.first;
+           for (auto calling_line : func_pair.second.callingLines) {
+               unimplemented << "," << intToString(calling_line);
+           }
+       }
+   }
+
+   buffer->frontEmit(implemented.str());
+   buffer->frontEmit(unimplemented.str());
+   buffer->frontEmit("<header>");
 
    rsk_file << buffer->printBuffer();
    rsk_file.close();
@@ -655,4 +840,27 @@ void semanticError(string str)
 
 void DBG(string str) {
     cout << "***DBG*** " << str << endl;
+}
+
+void DbgPrintAllFunctions() {
+    for (const auto& func : functionTable) {
+        cout << "\n\n" << endl;
+        cout << "Function: " << func.first << endl;
+
+        cout << "startLineImplementation: " << func.second.startLineImplementation << endl;
+        
+        // Print paramTypes
+        cout << "Parameter Types: ";
+        for (auto type : func.second.paramTypes) {
+            cout << intToString(type) << " ";
+        }
+        cout << endl;
+
+        // Print paramIds
+        cout << "Parameter IDs: ";
+        for (auto id : func.second.paramIds) {
+            cout << id << " ";
+        }
+        cout << endl;
+    }
 }
