@@ -53,8 +53,8 @@ return          { return token_return;     }
 {sign}          { return yytext[0];        }
 {ellipsis}      { return token_ellipsis;   }
 {relop}         { yylval.name = yytext; return token_relop; }
-{addop}         { return token_addop;      }
-{mulop}         { return token_mulop;      }
+{addop}         { yylval.name = yytext; return token_addop;      }
+{mulop}         { yylval.name = yytext; return token_mulop;      }
 {assign}        { return token_assign;     }
 {and}           { return token_and;        }
 {or}            { return token_or;         }

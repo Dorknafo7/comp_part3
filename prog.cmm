@@ -1,12 +1,12 @@
 void main() {
-    a,b:int;
-    a = 0;
-    b = 5;
+    a,b:float;
+    a = 3.0;
+    b = 6.0;
 
-    if (a < b ) then { 
-        write("a < b");
+    if ( (b/a) == 2 ) then { 
+        write(1);
     } else {
-        write ("b > a");
+        write (2);
     }
 
 }

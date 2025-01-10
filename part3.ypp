@@ -261,7 +261,7 @@ READ : token_read '(' LVAL ')' ';'
             buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($3.offset));
 
             // Use READ and store in temp register
-            string int_float = (($3.type == int_) ? "I" : "F");
+            string int_float   = (($3.type == int_) ? "I" : "F");
             int value_register = ($3.type == int_ ? next_int_register++ : next_float_register++);
             buffer->emit("READ" + int_float + " " + int_float + intToString(value_register));
 
@@ -318,8 +318,8 @@ LVAL : token_id
                     }
                 }
             }
-            $$.name = $1.name;
-            $$.type = symbolTable[$1.name].type[token_id_block];
+            $$.name   = $1.name;
+            $$.type   = symbolTable[$1.name].type[token_id_block];
             $$.offset = symbolTable[$1.name].offset[token_id_block];
         }
 ;
@@ -362,14 +362,14 @@ CNTRL : token_if BEXP token_then M STMT token_else N M STMT
 BEXP : BEXP token_or M BEXP 
        {
             buffer->backpatch($1.falseList, $3.quad);
-            $$.trueList = merge<int>($1.trueList, $4.trueList);
+            $$.trueList  = merge<int>($1.trueList, $4.trueList);
             $$.falseList = $4.falseList;
        }
        |
        BEXP token_and M BEXP
        {
            buffer->backpatch($1.trueList, $3.quad);
-           $$.trueList = $4.trueList;
+           $$.trueList  = $4.trueList;
            $$.falseList = merge<int>($1.falseList, $4.falseList);
        }
        |
@@ -382,11 +382,11 @@ BEXP : BEXP token_or M BEXP
        EXP token_relop EXP
        {
             if ($1.type != $3.type) {
-                semanticError("Try to do relop between different types");
+                semanticError($2.name + " op is not allowed between different types");
             }
 
             string relop = $2.name;
-            Type type = $1.type;
+            Type type    = $1.type;
 
             if      (relop == "==") { handleExpRelopExp("SNEQ", "BREQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
             else if (relop == "<>") { handleExpRelopExp("SEQU", "BREQZ", $1.RegNum, $3.RegNum, type, $$.trueList, $$.falseList); }
@@ -404,28 +404,28 @@ BEXP : BEXP token_or M BEXP
 
 EXP : EXP token_addop EXP
       {
-        // TODO: add SUB
         if ($1.type != $3.type) {
-             semanticError("Try to sum different types");
+             semanticError("Try to sum/sub different types");
         }
-        Type type = $1.type;
-        $$.type = type;
-        $$.RegNum = (type == int_ ? next_int_register++ : next_float_register++);
+        Type type        = $1.type;
+        $$.type          = type;
+        $$.RegNum        = (type == int_ ? next_int_register++ : next_float_register++);
         string int_float = (type == int_ ? "I" : "F");
-        buffer->emit("ADD2" + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
+        string opcode    = ($2.name == "+" ? "ADD2" : "SUBT");
+        buffer->emit(opcode + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
       }
       |
       EXP token_mulop EXP
       {
-        // TODO: add DIVD
         if ($1.type != $3.type) {
-            semanticError("Try to multiply different types");
+            semanticError("Try to mult/div different types");
         }
-        Type type = $1.type;
-        $$.type = type;
-        $$.RegNum = (type == int_ ? next_int_register++ : next_float_register++);
+        Type type        = $1.type;
+        $$.type          = type;
+        $$.RegNum        = (type == int_ ? next_int_register++ : next_float_register++);
         string int_float = (type == int_ ? "I" : "F");
-        buffer->emit("MULT" + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
+        string opcode    = ($2.name == "*" ? "MULT" : "DIVD");
+        buffer->emit(opcode + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
       }
       |
       '(' EXP ')'
@@ -435,13 +435,10 @@ EXP : EXP token_addop EXP
       |
       '(' TYPE ')' EXP
       {
-        $$.type = $2.type;
-        $$.RegNum = ($$.type == int_ ? next_int_register++ : next_float_register++);
-        if ($$.type == int_) {
-            buffer->emit("CFTOI I" + intToString($$.RegNum) + " F" + intToString($4.RegNum));
-        } else {
-            buffer->emit("CITOF F" + intToString($$.RegNum) + " I" + intToString($4.RegNum));
-        }
+        $$.type       = $2.type;
+        $$.RegNum     = ($$.type == int_ ? next_int_register++ : next_float_register++);
+        if ($$.type == int_) { buffer->emit("CFTOI I" + intToString($$.RegNum) + " F" + intToString($4.RegNum));}
+        else                 { buffer->emit("CITOF F" + intToString($$.RegNum) + " I" + intToString($4.RegNum));}
       }
       |
       token_id
@@ -460,8 +457,8 @@ EXP : EXP token_addop EXP
                 }
             }
         }
-        $$.name = $1.name;
-        $$.type = symbolTable[$1.name].type[token_id_block];
+        $$.name   = $1.name;
+        $$.type   = symbolTable[$1.name].type[token_id_block];
         $$.offset = symbolTable[$1.name].offset[token_id_block];
 
         // Read the token_id value from memory and store it in register
@@ -496,17 +493,17 @@ EXP : EXP token_addop EXP
 
 NUM : token_integernum
       {
-        $$.type = int_;
+        $$.type   = int_;
         $$.RegNum = next_int_register++;
-        $$.name = $1.name;
+        $$.name   = $1.name;
         buffer->emit("COPYI I" + intToString($$.RegNum) + " " + $1.name);
       }
       | 
       token_realnum
       {
-        $$.type = float_;
+        $$.type   = float_;
         $$.RegNum = next_float_register++;
-        $$.name = $1.name;
+        $$.name   = $1.name;
         buffer->emit("COPYF F" + intToString($$.RegNum) + " " + $1.name);
       }
 ;
