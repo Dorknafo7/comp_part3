@@ -63,6 +63,8 @@ FDEFS : FDEFS FUNC_DEF_API BLK
             function_arguments.clear();
             current_stack_pointer = 0;
             current_block_depth   = 0;
+            next_int_register     = 3;
+            next_float_register   = 3;
 
             buffer->emit("RETRN");
         }
@@ -271,6 +273,7 @@ STMT : DCL ';'
             int stack_pointer_inc_by_bytes = (4 * dcl_num_ids);
             buffer->emit("ADD2I I2 I2 " + intToString(stack_pointer_inc_by_bytes));
             dcl_num_ids = 0;
+            func_args_reversed .clear();
        }
        |
        ASSN
@@ -637,7 +640,7 @@ CALL : token_id '(' CALL_ARGS ')'
             int current_offset = -8; // Starting from -8 since -4 is reserved for the return value.
             for (int i = 0; i < param_regs.size(); i++) {
                 string int_float = (params_type[i] == int_ ? "I" : "F");
-                buffer->emit("STOR" + int_float + " " + int_float + "1 " + intToString(current_offset - i*4));
+                buffer->emit("STOR" + int_float + " " + int_float + intToString(param_regs[i]) + " " + int_float + "1 " + intToString(current_offset - i*4));
             }
 
             // Update the calling lines of this function
