@@ -53,7 +53,10 @@
 
 PROGRAM: FDEFS
          {
-
+            // backpatch the calling lines as now we know the definition lines of the defined functions.
+            for (const auto& pair : functionTable) {
+                buffer->backpatch(pair.second.callingLines, pair.second.startLineImplementation);
+            }
          }
 ;
 
@@ -65,6 +68,7 @@ FDEFS : FDEFS FUNC_DEF_API BLK
             current_block_depth   = 0;
             next_int_register     = 3;
             next_float_register   = 3;
+            current_func_variadic = false;
 
             buffer->emit("RETRN");
         }
@@ -90,10 +94,11 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                     else {
                         // New function. Add to the functionTable
                         Function new_func;
-                        new_func.returnType              = $1.type;
-                        new_func.isDefined               = false;
-                        new_func.startLineImplementation = -1;
-                        functionTable[$2.name]           = new_func;
+                        new_func.returnType               = $1.type;
+                        new_func.isDefined                = false;
+                        new_func.startLineImplementation  = -1;
+                        functionTable[$2.name]            = new_func;
+                        new_func.startIndexOptionalParams = -1;
                     }
                }
                |
@@ -110,17 +115,33 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                             new_func.paramTypes.push_back(symbolTable[arg].type[0 /*block_depth*/]);
                             new_func.paramIds.push_back(arg);
                         }
-                        new_func.returnType              = $1.type;
-                        new_func.isDefined               = false;
-                        new_func.startLineImplementation = -1;
-                        functionTable[$2.name]           = new_func;
-                        
+                        new_func.returnType               = $1.type;
+                        new_func.isDefined                = false;
+                        new_func.startLineImplementation  = -1;
+                        functionTable[$2.name]            = new_func;
+                        new_func.startIndexOptionalParams = -1;
                     }
                }
                |
                TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')' ';'
                {
-                    // TODO
+                    if (functionTable.find($2.name) != functionTable.end()) {
+                        DBG("WARNING: function \"" + $2.name + "\" is already defined/declared"); // TODO: remove when below checkers implemented
+                        // TODO: function is already defined/declared. need to verify all the params are the same (return type, number of param, types...)
+                    }
+                    else {
+                        // New function. Add to the functionTable
+                        Function new_func;
+                        for (auto arg : function_arguments) {
+                            new_func.paramTypes.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            new_func.paramIds.push_back(arg);
+                        }
+                        new_func.returnType               = $1.type;
+                        new_func.isDefined                = false;
+                        new_func.startLineImplementation  = -1;
+                        functionTable[$2.name]            = new_func;
+                        new_func.startIndexOptionalParams = function_arguments.size();
+                    }
                }
 ;
 
@@ -132,14 +153,18 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                             semanticError("Redefinition of function \"" + $2.name +"\"");
                         }
                         // else the function is already declared but not defined. TODO: add verification of parameters.
+                        functionTable[$2.name].startLineImplementation = $4.quad;
+                        functionTable[$2.name].isDefined               = true;
+
                     }
                     else {
                         // New function. Add to the functionTable
                         Function new_func;
-                        new_func.returnType              = $1.type;
-                        new_func.startLineImplementation = $4.quad;
-                        new_func.isDefined               = true;
-                        functionTable[$2.name]           = new_func;
+                        new_func.returnType               = $1.type;
+                        new_func.startLineImplementation  = $4.quad;
+                        new_func.isDefined                = true;
+                        functionTable[$2.name]            = new_func;
+                        new_func.startIndexOptionalParams = -1;
                     }
                     current_return_type = $1.type;
                }
@@ -152,6 +177,8 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                             semanticError("Redefinition of function \"" + $2.name +"\"");
                         }
                         // else the function is already declared but not defined. TODO: add verification of parameters.
+                        functionTable[$2.name].startLineImplementation = $4.quad;
+                        functionTable[$2.name].isDefined               = true;
                     }
                     else {
                         // New function. Add to the functionTable
@@ -160,17 +187,42 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                             new_func.paramTypes.push_back(symbolTable[arg].type[0 /*block_depth*/]);
                             new_func.paramIds.push_back(arg);
                         }
-                        new_func.returnType              = $1.type;
-                        new_func.startLineImplementation = $4.quad;
-                        new_func.isDefined               = true;
-                        functionTable[$2.name]           = new_func;
+                        new_func.returnType               = $1.type;
+                        new_func.startLineImplementation  = $4.quad;
+                        new_func.isDefined                = true;
+                        functionTable[$2.name]            = new_func;
+                        new_func.startIndexOptionalParams = -1;
                     }
                     current_return_type = $1.type;
                }
                |
                TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')'
                {
-                    // TODO
+                    if (functionTable.find($2.name) != functionTable.end()) {
+                        // Function is already defined/declared.
+                        if (functionTable[$2.name].isDefined) {
+                            semanticError("Redefinition of function \"" + $2.name +"\"");
+                        }
+                        // else the function is already declared but not defined. TODO: add verification of parameters.
+                        functionTable[$2.name].startLineImplementation = $4.quad;
+                        functionTable[$2.name].isDefined               = true;
+                    }
+                    else {
+                        // New function. Add to the functionTable
+                        Function new_func;
+                        for (auto arg : function_arguments) {
+                            new_func.paramTypes.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            new_func.paramIds.push_back(arg);
+                        }
+                        new_func.returnType               = $1.type;
+                        new_func.startLineImplementation  = $4.quad;
+                        new_func.isDefined                = true;
+                        functionTable[$2.name]            = new_func;
+                        new_func.startIndexOptionalParams = function_arguments.size();
+                    }
+                    current_return_type         = $1.type;
+                    current_func_variadic       = true;
+                    current_start_index_va_arg  = function_arguments.size();
                }
 ;
 
@@ -595,7 +647,7 @@ EXP : EXP token_addop EXP
       |
       VA_MATERIALISE
       {
-
+        $$ = $1;
       }
 ;
 
@@ -621,6 +673,7 @@ CALL : token_id '(' CALL_ARGS ')'
            if (functionTable.find($1.name) == functionTable.end()) {
                semanticError("Try to call undefined function \"" + $1.name + "\"");
            }
+
            // TODO: important to add checks. currently only correct logic is implemented.
             buffer->emit("CITOF F2 I2");
             int max_used_reg = max(next_float_register, next_int_register);
@@ -648,14 +701,15 @@ CALL : token_id '(' CALL_ARGS ')'
 
             // And jump to the function
             Function function = functionTable.at($1.name);
-            int function_start_line_impl = function.startLineImplementation;
-            buffer->emit("JLINK " + intToString(function_start_line_impl));
+            buffer->emit("JLINK ");
 
             // At this point we returned from the function.
             buffer->emit("COPYI I2 I1");
 
             // Save the return value
-            int return_value_reg = (function.returnType == int_ ? next_int_register++ : next_float_register++);
+            int return_value_reg = max_used_reg;//(function.returnType == int_ ? next_int_register++ : next_float_register++);
+            next_int_register    = max_used_reg+1;
+            next_float_register  = max_used_reg+1;
             string int_float     = (function.returnType == int_ ? "I" : "F");
             if (function.returnType == float_) {
                 buffer->emit("CITOF F1 I1");
@@ -678,7 +732,62 @@ CALL : token_id '(' CALL_ARGS ')'
 
 VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
                  {
+                    if (!current_func_variadic) {
+                        // TODO: fail
+                    }
+                    /*
+                        Steps to calculate the va_arg value:
+                        1. Determine the index at which the va_arg parameters start in the function definition.
+                           This can be obtained using (current_start_index_va_arg + 1). Add an additional +1 to account for the return value.
+                        2. Multiply the calculated index by 4 to get the offset in bytes. Note that the offset remains positive at this stage.
+                        3. Calculate the actual offset from I1 (a negative value) by subtracting the computed offset from 0.
+                        4. At this point, we have the real offset of the required va_arg, which can now be read from memory. Perform type casting as necessary based on the type of the required va_arg.
+                        5. If needed, cast I1 to a float register.
+                        6. Load the va_arg from memory using the LOAD command.
+                    */
 
+                    // TODO: add any needed checks.
+
+                    /* Step 1 */
+                    int va_arg_offset_cells = (current_start_index_va_arg + 2); // [ret_val, arg1, arg2, ... 1st_va_arg]
+                    int regnum_total_offset_in_cells = ($5.type == int_ ? next_int_register++ : next_float_register++);
+                    string int_float  = ($5.type == int_ ? "I" : "F");
+                    buffer->emit("ADD2" + int_float + " " + int_float + intToString(regnum_total_offset_in_cells) + " " + int_float + intToString($5.RegNum) + " " + intToString(va_arg_offset_cells) + ($5.type == int_ ? "" : ".0"));
+                    
+                    /* Step 2 */
+                    int regnum_total_abs_offset_in_bytes = ($5.type == int_ ? next_int_register++ : next_float_register++);
+                    buffer->emit("MULT" + int_float + " " + int_float + intToString(regnum_total_abs_offset_in_bytes) + " " + int_float + intToString(regnum_total_offset_in_cells) + " " + ($5.type == int_ ? "4" : "4.0"));
+
+                    /* Step 3 */
+                    int regnum_total_real_offset_in_bytes = ($5.type == int_ ? next_int_register++ : next_float_register++);
+                    buffer->emit("SUBT" + int_float + " " + int_float + intToString(regnum_total_real_offset_in_bytes) + " " + ($5.type == int_ ? "0" : "0.0") + " " + int_float + intToString(regnum_total_abs_offset_in_bytes));
+                    
+                    /* Step 4 */
+                    if (($3.type == int_) && ($5.type == float_)) {
+                        int int_reg = next_int_register++;
+                        buffer->emit("CFTOI I" + intToString(int_reg) + " F" + intToString(regnum_total_real_offset_in_bytes));
+                        regnum_total_real_offset_in_bytes = int_reg;
+                    } else if (($3.type == float_) && ($5.type == int_)) {
+                        int float_reg = next_float_register++;
+                        buffer->emit("CITOF F" + intToString(float_reg) + " I" + intToString(regnum_total_real_offset_in_bytes));
+                        regnum_total_real_offset_in_bytes = float_reg;
+                    }
+
+                    /* Step 5 */
+                    int base_reg = 1; // I1
+                    if ($3.type == float_) {
+                        int base_reg_float = next_float_register++;
+                        buffer->emit("CITOF F" + intToString(base_reg_float) + " I1");
+                        base_reg = base_reg_float;
+                    }
+
+                    /* Step 6 */
+                    int_float = ($3.type == int_ ? "I" : "F");
+                    int final_reg = ($3.type == int_ ? next_int_register++ : next_float_register++);
+                    buffer->emit("LOAD" + int_float + " " + int_float + intToString(final_reg) + " " + int_float + intToString(base_reg) + " " + int_float + intToString(regnum_total_real_offset_in_bytes));
+
+                    $$.type   = $3.type;
+                    $$.RegNum = final_reg;
                  }
 ;
 
@@ -828,7 +937,7 @@ int main(int argc, char* argv[]) {
 
 void yyerror(const char* c)
 {
-    printf("Syntax error: '%s' in line number %d\n",yytext,yylineno);
+    cerr << "Syntax error: " <<  yytext << " in line number " << yylineno << endl;
     exit(SYNTAX_ERROR);
 }
 

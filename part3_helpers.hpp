@@ -156,5 +156,8 @@ static vector<string> function_arguments;
 static vector<string> func_args_reversed;
 static Type current_return_type;
 
+static bool current_func_variadic = false;
+static int current_start_index_va_arg = 0;
+
 
 #endif

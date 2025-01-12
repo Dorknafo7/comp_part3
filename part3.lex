@@ -66,7 +66,7 @@ return          { return token_return;     }
 /* Functions Implementation */
 void printLexErrorAndExit()
 {
-    printf("Lexical error: '%s' in line number %d\n",yytext,yylineno);
+    cerr << "Lexical error: " <<  yytext << " in line number " << yylineno << endl;
     exit(LEXICAL_ERROR);
 }
 
