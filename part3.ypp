@@ -10,6 +10,7 @@
     void handleSymbolDcl(string name, Type type);
     void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list);
     void printRunTimeError();
+    bool compFunctions(const Function& func, Type return_type, vector<Type> param_types = {}, vector<string> param_ids = {});
 
     extern int yylex();
     extern char *yytext;
@@ -89,8 +90,9 @@ FDEFS : FDEFS FUNC_DEF_API BLK
 FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                {
                     if (functionTable.find($2.name) != functionTable.end()) {
-                        DBG("WARNING: function \"" + $2.name + "\" is already defined/declared"); // TODO: remove when below checkers implemented
-                        // TODO: function is already defined/declared. need to verify all the params are the same (return type, number of param, types...)
+                        if (!compFunctions(functionTable.at($2.name), $1.type)) {
+                            semanticError("Function overloading is not supported");
+                        }
                     }
                     else {
                         // New function. Add to the functionTable
@@ -106,8 +108,15 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                TYPE token_id '(' M FUNC_ARGLIST ')' ';'
                {
                     if (functionTable.find($2.name) != functionTable.end()) {
-                        DBG("WARNING: function \"" + $2.name + "\" is already defined/declared"); // TODO: remove when below checkers implemented
-                        // TODO: function is already defined/declared. need to verify all the params are the same (return type, number of param, types...)
+                        vector<string> param_ids;
+                        vector<Type> param_types;
+                        for (auto arg : function_arguments) {
+                            param_types.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            param_ids.push_back(arg);
+                        }
+                        if (!compFunctions(functionTable.at($2.name), $1.type, param_types, param_ids)) {
+                            semanticError("Function overloading is not supported");
+                        }
                     }
                     else {
                         // New function. Add to the functionTable
@@ -127,8 +136,15 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')' ';'
                {
                     if (functionTable.find($2.name) != functionTable.end()) {
-                        DBG("WARNING: function \"" + $2.name + "\" is already defined/declared"); // TODO: remove when below checkers implemented
-                        // TODO: function is already defined/declared. need to verify all the params are the same (return type, number of param, types...)
+                        vector<string> param_ids;
+                        vector<Type> param_types;
+                        for (auto arg : function_arguments) {
+                            param_types.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            param_ids.push_back(arg);
+                        }
+                        if (!compFunctions(functionTable.at($2.name), $1.type, param_types, param_ids)) {
+                            semanticError("Function overloading is not supported");
+                        }
                     }
                     else {
                         // New function. Add to the functionTable
@@ -153,7 +169,10 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                         if (functionTable[$2.name].isDefined) {
                             semanticError("Redefinition of function \"" + $2.name +"\"");
                         }
-                        // else the function is already declared but not defined. TODO: add verification of parameters.
+                        // else the function is already declared but not defined.
+                        if (!compFunctions(functionTable.at($2.name), $1.type)) {
+                            semanticError("Function overloading is not supported");
+                        }
                         functionTable[$2.name].startLineImplementation = $4.quad;
                         functionTable[$2.name].isDefined               = true;
 
@@ -177,7 +196,16 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                         if (functionTable[$2.name].isDefined) {
                             semanticError("Redefinition of function \"" + $2.name +"\"");
                         }
-                        // else the function is already declared but not defined. TODO: add verification of parameters.
+                        // else the function is already declared but not defined.
+                        vector<string> param_ids;
+                        vector<Type> param_types;
+                        for (auto arg : function_arguments) {
+                            param_types.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            param_ids.push_back(arg);
+                        }
+                        if (!compFunctions(functionTable.at($2.name), $1.type, param_types, param_ids)) {
+                            semanticError("Function overloading is not supported");
+                        }
                         functionTable[$2.name].startLineImplementation = $4.quad;
                         functionTable[$2.name].isDefined               = true;
                     }
@@ -204,7 +232,16 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                         if (functionTable[$2.name].isDefined) {
                             semanticError("Redefinition of function \"" + $2.name +"\"");
                         }
-                        // else the function is already declared but not defined. TODO: add verification of parameters.
+                        // else the function is already declared but not defined.
+                        vector<string> param_ids;
+                        vector<Type> param_types;
+                        for (auto arg : function_arguments) {
+                            param_types.push_back(symbolTable[arg].type[0 /*block_depth*/]);
+                            param_ids.push_back(arg);
+                        }
+                        if (!compFunctions(functionTable.at($2.name), $1.type, param_types, param_ids)) {
+                            semanticError("Function overloading is not supported");
+                        }
                         functionTable[$2.name].startLineImplementation = $4.quad;
                         functionTable[$2.name].isDefined               = true;
                     }
@@ -672,7 +709,7 @@ NUM : token_integernum
 CALL : token_id '(' CALL_ARGS ')'
       {
            if (functionTable.find($1.name) == functionTable.end()) {
-               semanticError("Try to call undefined function \"" + $1.name + "\"");
+               semanticError("Undefined function \"" + $1.name + "\"");
            }
 
            // Upon a call to variadic function, need to insert code for runtime error.
@@ -917,6 +954,22 @@ void printRunTimeError() {
     for (int i = 0; i < runtime_error_msg.length(); i++) {
         buffer->emit("PRNTC " + intToString(static_cast<int>(runtime_error_msg[i])));
     }
+}
+
+bool compFunctions(const Function& func, Type return_type, vector<Type> param_types, vector<string> param_ids) {
+    if (!(func.returnType == return_type)) {
+        return false;
+    }
+
+    if (func.paramTypes != param_types) {
+        return false;
+    }
+
+    if (func.paramIds != param_ids) {
+        return false;
+    }
+
+    return true;
 }
 
 
