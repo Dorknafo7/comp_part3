@@ -159,5 +159,7 @@ static Type current_return_type;
 static bool current_func_variadic = false;
 static int current_start_index_va_arg = 0;
 
+static string runtime_error_msg = "Runtime error!";
+
 
 #endif

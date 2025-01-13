@@ -9,6 +9,7 @@
 
     void handleSymbolDcl(string name, Type type);
     void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list);
+    void printRunTimeError();
 
     extern int yylex();
     extern char *yytext;
@@ -97,8 +98,8 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                         new_func.returnType               = $1.type;
                         new_func.isDefined                = false;
                         new_func.startLineImplementation  = -1;
-                        functionTable[$2.name]            = new_func;
                         new_func.startIndexOptionalParams = -1;
+                        functionTable[$2.name]            = new_func;
                     }
                }
                |
@@ -118,8 +119,8 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                         new_func.returnType               = $1.type;
                         new_func.isDefined                = false;
                         new_func.startLineImplementation  = -1;
-                        functionTable[$2.name]            = new_func;
                         new_func.startIndexOptionalParams = -1;
+                        functionTable[$2.name]            = new_func;
                     }
                }
                |
@@ -139,8 +140,8 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                         new_func.returnType               = $1.type;
                         new_func.isDefined                = false;
                         new_func.startLineImplementation  = -1;
-                        functionTable[$2.name]            = new_func;
                         new_func.startIndexOptionalParams = function_arguments.size();
+                        functionTable[$2.name]            = new_func;
                     }
                }
 ;
@@ -163,8 +164,8 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                         new_func.returnType               = $1.type;
                         new_func.startLineImplementation  = $4.quad;
                         new_func.isDefined                = true;
-                        functionTable[$2.name]            = new_func;
                         new_func.startIndexOptionalParams = -1;
+                        functionTable[$2.name]            = new_func;
                     }
                     current_return_type = $1.type;
                }
@@ -190,8 +191,8 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                         new_func.returnType               = $1.type;
                         new_func.startLineImplementation  = $4.quad;
                         new_func.isDefined                = true;
-                        functionTable[$2.name]            = new_func;
                         new_func.startIndexOptionalParams = -1;
+                        functionTable[$2.name]            = new_func;
                     }
                     current_return_type = $1.type;
                }
@@ -217,8 +218,8 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                         new_func.returnType               = $1.type;
                         new_func.startLineImplementation  = $4.quad;
                         new_func.isDefined                = true;
-                        functionTable[$2.name]            = new_func;
                         new_func.startIndexOptionalParams = function_arguments.size();
+                        functionTable[$2.name]            = new_func;
                     }
                     current_return_type         = $1.type;
                     current_func_variadic       = true;
@@ -674,6 +675,22 @@ CALL : token_id '(' CALL_ARGS ')'
                semanticError("Try to call undefined function \"" + $1.name + "\"");
            }
 
+           // Upon a call to variadic function, need to insert code for runtime error.
+            if (functionTable.at($1.name).startIndexOptionalParams != (-1)) {
+                int index_num_of_va_args = functionTable.at($1.name).startIndexOptionalParams - 1;
+                int num_args_regnum = $3.paramRegs[index_num_of_va_args];
+                int num_of_given_va_args = $3.paramRegs.size() - functionTable.at($1.name).startIndexOptionalParams;
+                
+                // HALT if val(num_args_regnum) != num_of_given_va_args
+                int tmp_reg = next_int_register++;
+                buffer->emit("SNEQI I" + intToString(tmp_reg) + " I" + intToString(num_args_regnum) + " " + intToString(num_of_given_va_args));
+                int line_after_halt = buffer->nextQuad() + 2 + runtime_error_msg.length();
+                buffer->emit("BREQZ I" + intToString(tmp_reg) + " " + intToString(line_after_halt));
+                printRunTimeError();
+                buffer->emit("HALT");
+            }
+            
+
            // TODO: important to add checks. currently only correct logic is implemented.
             buffer->emit("CITOF F2 I2");
             int max_used_reg = max(next_float_register, next_int_register);
@@ -733,8 +750,36 @@ CALL : token_id '(' CALL_ARGS ')'
 VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
                  {
                     if (!current_func_variadic) {
-                        // TODO: fail
+                        semanticError("Call va_arg in non-variadic function");
                     }
+
+                    // Insert code for run-time errors
+                    // Need to check that the index of EXP < num of variadic vaiables
+                    
+                    // First prepare the register of the EXP. convert to int if needed
+                    int regnum_offset_in_cells = next_int_register++;
+                    int exp_regnum = $5.RegNum;
+                    if ($5.type == float_) {
+                        // convert float to int
+                        int tmp_int_reg = next_int_register++;
+                        buffer->emit("CFTOI I" + intToString(tmp_int_reg) + " F" + intToString(exp_regnum));
+                        exp_regnum = tmp_int_reg;
+                    }
+
+                    // Now read the number of va args from the memory and store in register
+                    int num_of_va_args_param_offset = (current_start_index_va_arg + 1) * 4;
+                    int num_of_va_arg_regnum = next_int_register++;
+                    buffer->emit("LOADI I" + intToString(num_of_va_arg_regnum) + " I1 " + intToString((-1)*num_of_va_args_param_offset));
+
+                    // HALT if index is out of range
+                    int sgrt_reg = next_int_register++;
+                    buffer->emit("SLETI I" + intToString(sgrt_reg) + " I" + intToString(exp_regnum) + " I" + intToString(num_of_va_arg_regnum));
+
+                    int line_after_halt = buffer->nextQuad() + 2 + runtime_error_msg.length();
+                    buffer->emit("BNEQZ I" + intToString(sgrt_reg) + " " + intToString(line_after_halt));
+                    printRunTimeError();
+                    buffer->emit("HALT");
+
                     /*
                         Steps to calculate the va_arg value:
                         1. Determine the index at which the va_arg parameters start in the function definition.
@@ -866,6 +911,12 @@ void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, in
     buffer->emit(opcode_breqz_bneqz + " I" + intToString(branch_register) + " ");
     false_list.push_back(buffer->nextQuad());
     buffer->emit("UJUMP ");
+}
+
+void printRunTimeError() {
+    for (int i = 0; i < runtime_error_msg.length(); i++) {
+        buffer->emit("PRNTC " + intToString(static_cast<int>(runtime_error_msg[i])));
+    }
 }
 
 
