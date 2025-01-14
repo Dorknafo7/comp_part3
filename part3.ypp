@@ -135,6 +135,10 @@ FUNC_DEC_API : TYPE token_id '(' M ')' ';'
                |
                TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')' ';'
                {
+                    Type last_param_type = symbolTable[function_arguments.back()].type[0 /*block_depth*/];
+                    if (last_param_type != int_) {
+                        semanticError("Param before ellipsis must be int");
+                    }
                     if (functionTable.find($2.name) != functionTable.end()) {
                         vector<string> param_ids;
                         vector<Type> param_types;
@@ -227,6 +231,10 @@ FUNC_DEF_API : TYPE token_id '(' M ')'
                |
                TYPE token_id '(' M FUNC_ARGLIST ',' token_ellipsis ')'
                {
+                    Type last_param_type = symbolTable[function_arguments.back()].type[0 /*block_depth*/];
+                    if (last_param_type != int_) {
+                        semanticError("Param before ellipsis must be int");
+                    }
                     if (functionTable.find($2.name) != functionTable.end()) {
                         // Function is already defined/declared.
                         if (functionTable[$2.name].isDefined) {
@@ -741,6 +749,23 @@ CALL : token_id '(' CALL_ARGS ')'
             buffer->emit("COPYI I1 I2"); // base_pointer = stack_pointer
             buffer->emit("CITOF F1 I1");
 
+            // Check if the passed arguments are the same types as the function dec/def
+            const vector<Type>& def_types = functionTable[$1.name].paramTypes;
+            if (functionTable.at($1.name).startIndexOptionalParams == (-1)) {
+                // non variadic function
+                if (def_types != $3.paramTypes) {
+                    semanticError("Function argument types dont match the declaration");
+                }
+            } else {
+                // variadic function
+                int last_arg_index = functionTable.at($1.name).startIndexOptionalParams - 1;
+                for (int i = 0; i < last_arg_index; i++) {
+                    if (def_types[i] != $3.paramTypes[i]) {
+                        semanticError("Function argument types dont match the declaration");
+                    }
+                }
+            }
+
             // Store function's arguments
             vector<int> param_regs   = $3.paramRegs;
             vector<Type> params_type = $3.paramTypes;
@@ -976,20 +1001,20 @@ bool compFunctions(const Function& func, Type return_type, vector<Type> param_ty
 int main(int argc, char* argv[]) {
 
    if (argc != 2 ){
-      cerr << "A single .cmm file should be provided.\nUsage: rx-cc <input_file_name>.cmm" << endl;
+      cerr << "Operational error: A single .cmm file should be provided.\nUsage: rx-cc <input_file_name>.cmm" << endl;
       return OPERATIONAL_ERROR;
    }
 
    string cmm_file = argv[1];
    if (cmm_file.find(".cmm") == string::npos) {
-      cerr << "The provided file must be a .cmm file" << endl;
+      cerr << "Operational error: The provided file must be a .cmm file" << endl;
       return OPERATIONAL_ERROR;
    }
 
    extern FILE *yyin;
    yyin = fopen(cmm_file.c_str(), "r");
    if (!yyin) {
-      cerr << "Couldn't open the provided file: " << cmm_file << endl;
+      cerr << "Operational error: Couldn't open the provided file: " << cmm_file << endl;
       return OPERATIONAL_ERROR;
    }
 
@@ -1003,7 +1028,7 @@ int main(int argc, char* argv[]) {
    // Create the .rsk file 
    ofstream rsk_file(cmm_file.substr(0,cmm_file.find(".cmm")) + ".rsk");
    if (!rsk_file.is_open()) {
-      cerr << "Couldn't create .rsk file" << endl;
+      cerr << "Operational error: Couldn't create .rsk file" << endl;
       return OPERATIONAL_ERROR;
    }
 
