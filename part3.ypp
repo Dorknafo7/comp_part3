@@ -11,6 +11,9 @@
     void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list);
     void printRunTimeError();
     bool compFunctions(const Function& func, Type return_type, vector<Type> param_types = {}, vector<string> param_ids = {});
+    int getNextIntRegister();
+    int getNextFloatRegister();
+    int getNextRegisterByType(Type type);
 
     extern int yylex();
     extern char *yytext;
@@ -71,7 +74,6 @@ FDEFS : FDEFS FUNC_DEF_API BLK
             next_int_register     = 3;
             next_float_register   = 3;
             current_func_variadic = false;
-
             buffer->emit("RETRN");
         }
         |
@@ -83,7 +85,7 @@ FDEFS : FDEFS FUNC_DEF_API BLK
         |
         /*epsilon*/
         {
-
+            /*do nothing*/
         }
 ;
 
@@ -305,7 +307,7 @@ FUNC_ARGLIST : FUNC_ARGLIST ',' DCL
 
 BLK : '{' M_BLK_START STLIST M_BLK_END '}'
       {
-
+        /*do nothing*/
       }
 ;
 
@@ -357,12 +359,12 @@ TYPE : token_int
 
 STLIST : STLIST STMT 
          {
-
+            /*do nothing*/
          }
          |
          /*epsilon*/
-         { 
-
+         {
+            /*do nothing*/
          }
 ;
 
@@ -462,17 +464,17 @@ WRITE : token_write '(' EXP ')' ';'
 READ : token_read '(' LVAL ')' ';'
         {
             // Calc the address of the variable from the base pointer I1
-            int address_register = (next_int_register++);
+            int address_register = getNextIntRegister();
             buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($3.offset));
 
             // Use READ and store in temp register
             string int_float   = (($3.type == int_) ? "I" : "F");
-            int value_register = ($3.type == int_ ? next_int_register++ : next_float_register++);
+            int value_register = getNextRegisterByType($3.type);
             buffer->emit("READ" + int_float + " " + int_float + intToString(value_register));
 
             if ($3.type == float_) {
                 // convert the address_register to float
-                int float_address_register = next_float_register++;
+                int float_address_register = getNextFloatRegister();
                 buffer->emit("CITOF F" + intToString(float_address_register) + " I" + intToString(address_register));
                 address_register = float_address_register;
             }
@@ -490,14 +492,14 @@ ASSN : LVAL token_assign EXP ';'
             }
 
             // Calc the address of LVAL
-            int address_register = (next_int_register++);
+            int address_register = getNextIntRegister();
             buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($1.offset)); // Calc the address of the variable from the base pointer I1
 
             string int_float = (($3.type == int_) ? "I" : "F");
 
             if ($1.type == float_) {
                 // convert the address_register to float
-                int float_address_register = next_float_register++;
+                int float_address_register = getNextFloatRegister();
                 buffer->emit("CITOF F" + intToString(float_address_register) + " I" + intToString(address_register));
                 address_register = float_address_register;
             }
@@ -614,7 +616,7 @@ EXP : EXP token_addop EXP
         }
         Type type        = $1.type;
         $$.type          = type;
-        $$.RegNum        = (type == int_ ? next_int_register++ : next_float_register++);
+        $$.RegNum        = getNextRegisterByType(type);
         string int_float = (type == int_ ? "I" : "F");
         string opcode    = ($2.name == "+" ? "ADD2" : "SUBT");
         buffer->emit(opcode + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
@@ -627,7 +629,7 @@ EXP : EXP token_addop EXP
         }
         Type type        = $1.type;
         $$.type          = type;
-        $$.RegNum        = (type == int_ ? next_int_register++ : next_float_register++);
+        $$.RegNum        = getNextRegisterByType(type);
         string int_float = (type == int_ ? "I" : "F");
         string opcode    = ($2.name == "*" ? "MULT" : "DIVD");
         buffer->emit(opcode + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
@@ -641,7 +643,7 @@ EXP : EXP token_addop EXP
       '(' TYPE ')' EXP
       {
         $$.type       = $2.type;
-        $$.RegNum     = ($$.type == int_ ? next_int_register++ : next_float_register++);
+        $$.RegNum     = getNextRegisterByType($$.type);
         if ($$.type == int_) { buffer->emit("CFTOI I" + intToString($$.RegNum) + " F" + intToString($4.RegNum));}
         else                 { buffer->emit("CITOF F" + intToString($$.RegNum) + " I" + intToString($4.RegNum));}
       }
@@ -667,16 +669,16 @@ EXP : EXP token_addop EXP
         $$.offset = symbolTable[$1.name].offset[token_id_block];
 
         // Read the token_id value from memory and store it in register
-        int address_register = next_int_register++;
+        int address_register = getNextIntRegister();
         buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($$.offset));
         string int_float = ($$.type == int_ ? "I" : "F");
         if ($$.type == float_) {
             // convert the address_register to float
-            int float_address_register = next_float_register++;
+            int float_address_register = getNextFloatRegister();
             buffer->emit("CITOF F" + intToString(float_address_register) + " I" + intToString(address_register));
             address_register = float_address_register;
         }
-        $$.RegNum = ($$.type == int_ ? next_int_register++ : next_float_register++);
+        $$.RegNum = getNextRegisterByType($$.type);
         buffer->emit("LOAD" + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString(address_register) + " " + intToString(0));
       }
       |
@@ -700,7 +702,7 @@ EXP : EXP token_addop EXP
 NUM : token_integernum
       {
         $$.type   = int_;
-        $$.RegNum = next_int_register++;
+        $$.RegNum = getNextIntRegister();
         $$.name   = $1.name;
         buffer->emit("COPYI I" + intToString($$.RegNum) + " " + $1.name);
       }
@@ -708,7 +710,7 @@ NUM : token_integernum
       token_realnum
       {
         $$.type   = float_;
-        $$.RegNum = next_float_register++;
+        $$.RegNum = getNextFloatRegister();
         $$.name   = $1.name;
         buffer->emit("COPYF F" + intToString($$.RegNum) + " " + $1.name);
       }
@@ -727,7 +729,7 @@ CALL : token_id '(' CALL_ARGS ')'
                 int num_of_given_va_args = $3.paramRegs.size() - functionTable.at($1.name).startIndexOptionalParams;
                 
                 // HALT if val(num_args_regnum) != num_of_given_va_args
-                int tmp_reg = next_int_register++;
+                int tmp_reg = getNextIntRegister();
                 buffer->emit("SNEQI I" + intToString(tmp_reg) + " I" + intToString(num_args_regnum) + " " + intToString(num_of_given_va_args));
                 int line_after_halt = buffer->nextQuad() + 2 + runtime_error_msg.length();
                 buffer->emit("BREQZ I" + intToString(tmp_reg) + " " + intToString(line_after_halt));
@@ -735,8 +737,6 @@ CALL : token_id '(' CALL_ARGS ')'
                 buffer->emit("HALT");
             }
             
-
-           // TODO: important to add checks. currently only correct logic is implemented.
             buffer->emit("CITOF F2 I2");
             int max_used_reg = max(next_float_register, next_int_register);
             for (int i=0; i < max_used_reg; i++) {
@@ -786,9 +786,9 @@ CALL : token_id '(' CALL_ARGS ')'
             buffer->emit("COPYI I2 I1");
 
             // Save the return value
-            int return_value_reg = max_used_reg;//(function.returnType == int_ ? next_int_register++ : next_float_register++);
-            next_int_register    = max_used_reg+1;
-            next_float_register  = max_used_reg+1;
+            int return_value_reg = max_used_reg;
+            next_int_register    = max_used_reg + 1;
+            next_float_register  = max_used_reg + 1;
             string int_float     = (function.returnType == int_ ? "I" : "F");
             if (function.returnType == float_) {
                 buffer->emit("CITOF F1 I1");
@@ -819,22 +819,22 @@ VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
                     // Need to check that the index of EXP < num of variadic vaiables
                     
                     // First prepare the register of the EXP. convert to int if needed
-                    int regnum_offset_in_cells = next_int_register++;
+                    int regnum_offset_in_cells = getNextIntRegister();
                     int exp_regnum = $5.RegNum;
                     if ($5.type == float_) {
                         // convert float to int
-                        int tmp_int_reg = next_int_register++;
+                        int tmp_int_reg = getNextIntRegister();
                         buffer->emit("CFTOI I" + intToString(tmp_int_reg) + " F" + intToString(exp_regnum));
                         exp_regnum = tmp_int_reg;
                     }
 
                     // Now read the number of va args from the memory and store in register
                     int num_of_va_args_param_offset = (current_start_index_va_arg + 1) * 4;
-                    int num_of_va_arg_regnum = next_int_register++;
+                    int num_of_va_arg_regnum = getNextIntRegister();
                     buffer->emit("LOADI I" + intToString(num_of_va_arg_regnum) + " I1 " + intToString((-1)*num_of_va_args_param_offset));
 
                     // HALT if index is out of range
-                    int sgrt_reg = next_int_register++;
+                    int sgrt_reg = getNextIntRegister();
                     buffer->emit("SLETI I" + intToString(sgrt_reg) + " I" + intToString(exp_regnum) + " I" + intToString(num_of_va_arg_regnum));
 
                     int line_after_halt = buffer->nextQuad() + 2 + runtime_error_msg.length();
@@ -853,29 +853,27 @@ VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
                         6. Load the va_arg from memory using the LOAD command.
                     */
 
-                    // TODO: add any needed checks.
-
                     /* Step 1 */
                     int va_arg_offset_cells = (current_start_index_va_arg + 2); // [ret_val, arg1, arg2, ... 1st_va_arg]
-                    int regnum_total_offset_in_cells = ($5.type == int_ ? next_int_register++ : next_float_register++);
+                    int regnum_total_offset_in_cells = getNextRegisterByType($5.type);
                     string int_float  = ($5.type == int_ ? "I" : "F");
                     buffer->emit("ADD2" + int_float + " " + int_float + intToString(regnum_total_offset_in_cells) + " " + int_float + intToString($5.RegNum) + " " + intToString(va_arg_offset_cells) + ($5.type == int_ ? "" : ".0"));
                     
                     /* Step 2 */
-                    int regnum_total_abs_offset_in_bytes = ($5.type == int_ ? next_int_register++ : next_float_register++);
+                    int regnum_total_abs_offset_in_bytes = getNextRegisterByType($5.type);
                     buffer->emit("MULT" + int_float + " " + int_float + intToString(regnum_total_abs_offset_in_bytes) + " " + int_float + intToString(regnum_total_offset_in_cells) + " " + ($5.type == int_ ? "4" : "4.0"));
 
                     /* Step 3 */
-                    int regnum_total_real_offset_in_bytes = ($5.type == int_ ? next_int_register++ : next_float_register++);
+                    int regnum_total_real_offset_in_bytes = getNextRegisterByType($5.type);
                     buffer->emit("SUBT" + int_float + " " + int_float + intToString(regnum_total_real_offset_in_bytes) + " " + ($5.type == int_ ? "0" : "0.0") + " " + int_float + intToString(regnum_total_abs_offset_in_bytes));
                     
                     /* Step 4 */
                     if (($3.type == int_) && ($5.type == float_)) {
-                        int int_reg = next_int_register++;
+                        int int_reg = getNextIntRegister();
                         buffer->emit("CFTOI I" + intToString(int_reg) + " F" + intToString(regnum_total_real_offset_in_bytes));
                         regnum_total_real_offset_in_bytes = int_reg;
                     } else if (($3.type == float_) && ($5.type == int_)) {
-                        int float_reg = next_float_register++;
+                        int float_reg = getNextFloatRegister();
                         buffer->emit("CITOF F" + intToString(float_reg) + " I" + intToString(regnum_total_real_offset_in_bytes));
                         regnum_total_real_offset_in_bytes = float_reg;
                     }
@@ -883,14 +881,14 @@ VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
                     /* Step 5 */
                     int base_reg = 1; // I1
                     if ($3.type == float_) {
-                        int base_reg_float = next_float_register++;
+                        int base_reg_float = getNextFloatRegister();
                         buffer->emit("CITOF F" + intToString(base_reg_float) + " I1");
                         base_reg = base_reg_float;
                     }
 
                     /* Step 6 */
                     int_float = ($3.type == int_ ? "I" : "F");
-                    int final_reg = ($3.type == int_ ? next_int_register++ : next_float_register++);
+                    int final_reg = getNextRegisterByType($3.type);
                     buffer->emit("LOAD" + int_float + " " + int_float + intToString(final_reg) + " " + int_float + intToString(base_reg) + " " + int_float + intToString(regnum_total_real_offset_in_bytes));
 
                     $$.type   = $3.type;
@@ -961,12 +959,12 @@ void handleSymbolDcl(string name, Type type) {
 
 void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list) {
     string int_float = (type == int_ ? "I" : "F");
-    int tmp_register = (type == int_ ? next_int_register++ : next_float_register++);
+    int tmp_register = getNextRegisterByType(type);
     buffer->emit(opcode_without_type + int_float + " " + int_float + intToString(tmp_register) + " " + int_float + intToString(exp1_regnum) + " " + int_float + intToString(exp2_regnum));
     int branch_register = tmp_register;
     if (type == float_) {
         // BREQZ works on int register, need to convert float to int.
-        branch_register = next_int_register++;
+        branch_register = getNextIntRegister();
         buffer->emit("CFTOI I" + intToString(branch_register) + " F" + intToString(tmp_register));
     }
     true_list.push_back(buffer->nextQuad());
@@ -995,6 +993,18 @@ bool compFunctions(const Function& func, Type return_type, vector<Type> param_ty
     }
 
     return true;
+}
+
+int getNextIntRegister() {
+    return next_int_register++;
+}
+
+int getNextFloatRegister() {
+    return next_float_register++;
+}
+
+int getNextRegisterByType(Type type) {
+    return (type == int_ ? getNextIntRegister() : getNextFloatRegister());
 }
 
 
