@@ -146,20 +146,19 @@ static map<string, Symbol> symbolTable;			// Table that contains all symbols def
 static map<string, Function> functionTable;		// Table that contains all functions - each function with it's members
 /**********************************************************************************************/
 
-static int dcl_num_ids = 0;
-static int current_block_depth = 0;
-static int current_stack_pointer = 0;
-static int next_int_register = 3;
-static int next_float_register = 3;
+static int dcl_num_ids = 0;					// Counts the number of the current DCL arguments.
+static int current_block_depth = 0;         // Represents the current block depth to support scoping of variables.
+static int current_stack_pointer = 0;       // Holds the value to increment I2 when storing variables on the stack. 
+static int next_int_register = 3;           // Next free int register.
+static int next_float_register = 3;         // Next free float register.
 
 static vector<string> function_arguments;
 static vector<string> func_args_reversed;
-static Type current_return_type;
+static Type current_return_type;            // return type of the current compiled function. Mainly used for verification.
 
-static bool current_func_variadic = false;
+static bool current_func_variadic = false;  // indicates if the current compiled function is variadic. Used for verification.
 static int current_start_index_va_arg = 0;
 
 static string runtime_error_msg = "Runtime error!\n";
-
 
 #endif

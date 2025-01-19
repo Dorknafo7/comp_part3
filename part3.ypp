@@ -14,6 +14,7 @@
     int getNextIntRegister();
     int getNextFloatRegister();
     int getNextRegisterByType(Type type);
+    string getTypeCode(Type type);
 
     extern int yylex();
     extern char *yytext;
@@ -421,7 +422,7 @@ RETURN : token_return EXP ';'
                 semanticError("Return type is not correct");
             }
             // Store the return value in MEM[I1-4]
-            string int_float = ($2.type == int_ ? "I" : "F");
+            string int_float = getTypeCode($2.type);
             if ($2.type == float_) {
                 buffer->emit("CITOF F1 I1");
             }
@@ -437,7 +438,7 @@ RETURN : token_return EXP ';'
 
 WRITE : token_write '(' EXP ')' ';'
         {
-            string int_float = ($3.type == int_ ? "I" : "F");
+            string int_float = getTypeCode($3.type);
             buffer->emit("PRNT" + int_float + " " + int_float + intToString($3.RegNum));
         }
         |
@@ -468,7 +469,7 @@ READ : token_read '(' LVAL ')' ';'
             buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($3.offset));
 
             // Use READ and store in temp register
-            string int_float   = (($3.type == int_) ? "I" : "F");
+            string int_float = getTypeCode($3.type);
             int value_register = getNextRegisterByType($3.type);
             buffer->emit("READ" + int_float + " " + int_float + intToString(value_register));
 
@@ -495,7 +496,7 @@ ASSN : LVAL token_assign EXP ';'
             int address_register = getNextIntRegister();
             buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($1.offset)); // Calc the address of the variable from the base pointer I1
 
-            string int_float = (($3.type == int_) ? "I" : "F");
+            string int_float = getTypeCode($3.type);
 
             if ($1.type == float_) {
                 // convert the address_register to float
@@ -617,7 +618,7 @@ EXP : EXP token_addop EXP
         Type type        = $1.type;
         $$.type          = type;
         $$.RegNum        = getNextRegisterByType(type);
-        string int_float = (type == int_ ? "I" : "F");
+        string int_float = getTypeCode(type);
         string opcode    = ($2.name == "+" ? "ADD2" : "SUBT");
         buffer->emit(opcode + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
       }
@@ -630,7 +631,7 @@ EXP : EXP token_addop EXP
         Type type        = $1.type;
         $$.type          = type;
         $$.RegNum        = getNextRegisterByType(type);
-        string int_float = (type == int_ ? "I" : "F");
+        string int_float = getTypeCode(type);
         string opcode    = ($2.name == "*" ? "MULT" : "DIVD");
         buffer->emit(opcode + int_float + " " + int_float + intToString($$.RegNum) + " " + int_float + intToString($1.RegNum) + " " + int_float + intToString($3.RegNum));
       }
@@ -671,7 +672,7 @@ EXP : EXP token_addop EXP
         // Read the token_id value from memory and store it in register
         int address_register = getNextIntRegister();
         buffer->emit("ADD2I I" + intToString(address_register) + " I1 " + intToString($$.offset));
-        string int_float = ($$.type == int_ ? "I" : "F");
+        string int_float = getTypeCode($$.type);
         if ($$.type == float_) {
             // convert the address_register to float
             int float_address_register = getNextFloatRegister();
@@ -771,7 +772,7 @@ CALL : token_id '(' CALL_ARGS ')'
             vector<Type> params_type = $3.paramTypes;
             int current_offset = -8; // Starting from -8 since -4 is reserved for the return value.
             for (int i = 0; i < param_regs.size(); i++) {
-                string int_float = (params_type[i] == int_ ? "I" : "F");
+                string int_float = getTypeCode(params_type[i]);
                 buffer->emit("STOR" + int_float + " " + int_float + intToString(param_regs[i]) + " " + int_float + "1 " + intToString(current_offset - i*4));
             }
 
@@ -789,7 +790,7 @@ CALL : token_id '(' CALL_ARGS ')'
             int return_value_reg = max_used_reg;
             next_int_register    = max_used_reg + 1;
             next_float_register  = max_used_reg + 1;
-            string int_float     = (function.returnType == int_ ? "I" : "F");
+            string int_float     = getTypeCode(function.returnType);
             if (function.returnType == float_) {
                 buffer->emit("CITOF F1 I1");
             }
@@ -856,7 +857,7 @@ VA_MATERIALISE : token_va_arg '(' TYPE ',' EXP ')'
                     /* Step 1 */
                     int va_arg_offset_cells = (current_start_index_va_arg + 2); // [ret_val, arg1, arg2, ... 1st_va_arg]
                     int regnum_total_offset_in_cells = getNextRegisterByType($5.type);
-                    string int_float  = ($5.type == int_ ? "I" : "F");
+                    string int_float = getTypeCode($5.type);
                     buffer->emit("ADD2" + int_float + " " + int_float + intToString(regnum_total_offset_in_cells) + " " + int_float + intToString($5.RegNum) + " " + intToString(va_arg_offset_cells) + ($5.type == int_ ? "" : ".0"));
                     
                     /* Step 2 */
@@ -958,7 +959,7 @@ void handleSymbolDcl(string name, Type type) {
 }
 
 void handleExpRelopExp(string opcode_without_type, string opcode_breqz_bneqz, int exp1_regnum, int exp2_regnum, Type type, vector<int>& true_list, vector<int>& false_list) {
-    string int_float = (type == int_ ? "I" : "F");
+    string int_float = getTypeCode(type);
     int tmp_register = getNextRegisterByType(type);
     buffer->emit(opcode_without_type + int_float + " " + int_float + intToString(tmp_register) + " " + int_float + intToString(exp1_regnum) + " " + int_float + intToString(exp2_regnum));
     int branch_register = tmp_register;
@@ -1005,6 +1006,10 @@ int getNextFloatRegister() {
 
 int getNextRegisterByType(Type type) {
     return (type == int_ ? getNextIntRegister() : getNextFloatRegister());
+}
+
+string getTypeCode(Type type) {
+    return type == int_ ? "I" : "F";
 }
 
 
